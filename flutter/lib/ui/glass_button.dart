@@ -139,7 +139,7 @@ class _GlassBtnState extends State<GlassBtn> with SingleTickerProviderStateMixin
           },
           // A touch screen gets a 44 px target round the 34 px button.
           child: focusRing(
-            narrow(context)
+            touch(context)
                 ? ConstrainedBox(
                     constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
                     child: Center(widthFactor: 1, heightFactor: 1, child: button),
@@ -149,7 +149,7 @@ class _GlassBtnState extends State<GlassBtn> with SingleTickerProviderStateMixin
             radius: 999,
           ),
         );
-        return always || !narrow(context) ? keyed : Tooltip(message: widget.label, child: keyed);
+        return always || !touch(context) ? keyed : Tooltip(message: widget.label, child: keyed);
       },
     );
   }

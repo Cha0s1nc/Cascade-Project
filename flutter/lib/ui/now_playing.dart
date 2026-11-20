@@ -1036,6 +1036,7 @@ class _QueueRow extends StatelessWidget {
     also: keys,
     child: GestureDetector(
       onSecondaryTapUp: (d) => songMenu(context, song, d.globalPosition, extra: extra),
+      onLongPressStart: (d) => songMenu(context, song, d.globalPosition, extra: extra),
       child: Hover(
         onTap: onTap,
         builder: (_, on) => Container(

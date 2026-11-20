@@ -686,7 +686,7 @@ class IconBtn extends StatelessWidget {
         onTap: onTap,
         // A touch screen gets a 44 px target round the same small icon.
         builder: (context, on) => ConstrainedBox(
-          constraints: narrow(context) ? const BoxConstraints(minWidth: 44, minHeight: 44) : const BoxConstraints(),
+          constraints: touch(context) ? const BoxConstraints(minWidth: 44, minHeight: 44) : const BoxConstraints(),
           child: Center(
             widthFactor: 1,
             heightFactor: 1,
@@ -1088,8 +1088,9 @@ class ThinBar extends StatelessWidget {
     data: SliderThemeData(
       trackHeight: 4,
       trackShape: const RoundedRectSliderTrackShape(),
-      thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 5),
-      overlayShape: const RoundSliderOverlayShape(overlayRadius: 12),
+      // A touch screen: a thumb a finger can find.
+      thumbShape: RoundSliderThumbShape(enabledThumbRadius: touch(context) ? 8 : 5),
+      overlayShape: RoundSliderOverlayShape(overlayRadius: touch(context) ? 18 : 12),
       activeTrackColor: color ?? K.accent,
       inactiveTrackColor: K.tint.withValues(alpha: 0.14),
       disabledActiveTrackColor: color ?? K.accent,

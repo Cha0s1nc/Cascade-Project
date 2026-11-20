@@ -20,6 +20,11 @@ const pagePadding = EdgeInsets.fromLTRB(32, 30, 32, 32);
 /// Phones and narrow windows.
 bool narrow(BuildContext context) => MediaQuery.sizeOf(context).width < 600;
 
+/// A touch screen: a phone-width window, or Android and iOS at any width (a
+/// tablet in the desktop layout too). Bigger targets, and nothing that only
+/// shows on hover.
+bool touch(BuildContext context) => narrow(context) || Platform.isAndroid || Platform.isIOS;
+
 EdgeInsets pagePaddingOf(BuildContext context) => narrow(context) ? const EdgeInsets.fromLTRB(16, 12, 16, 24) : pagePadding;
 
 /// A page: its header, then slivers.
@@ -711,7 +716,7 @@ class MenuKeys extends StatelessWidget {
 /// A "More" button that opens a menu under itself: shown while its row is
 /// hovered or focused, always on a touch screen, its room kept either way.
 Widget moreButton(BuildContext context, bool shown, void Function(Offset at) open) => Visibility(
-  visible: shown || narrow(context),
+  visible: shown || touch(context),
   maintainSize: true,
   maintainAnimation: true,
   maintainState: true,

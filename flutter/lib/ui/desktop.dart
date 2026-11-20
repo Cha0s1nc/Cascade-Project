@@ -100,8 +100,9 @@ class _DesktopShellState extends State<DesktopShell> {
   /// Expanded, then a rail that slides out, then a plain rail.
   void _cycleSidebar() {
     final s = PlayerScope.read(context).settings;
+    // A touch screen has no hover to slide the rail out: open or a rail.
     s.setSidebarMode(switch (s.sidebarMode) {
-      'expanded' => 'hover',
+      'expanded' => touch(context) ? 'rail' : 'hover',
       'hover' => 'rail',
       _ => 'expanded',
     });
@@ -189,7 +190,9 @@ class _DesktopShellState extends State<DesktopShell> {
     final chosen = PlayerScope.read(context).settings.sidebarMode;
     // A compact window (under 900 px) has no room for the open sidebar: it
     // slides out over the page instead, and the choice is back when wider.
-    final mode = chosen == 'expanded' && compactWindow(context) ? 'hover' : chosen;
+    // A touch screen cannot hover, so a rail that slides out is a plain rail.
+    final wanted = touch(context) && chosen == 'hover' ? 'rail' : chosen;
+    final mode = wanted == 'expanded' && compactWindow(context) && !touch(context) ? 'hover' : wanted;
     final out = mode == 'expanded' || (mode == 'hover' && _railOut);
     const ease = Cubic(.4, 0, .2, 1), time = Duration(milliseconds: 180);
     return Stack(
@@ -269,6 +272,7 @@ class _DesktopShellState extends State<DesktopShell> {
                             spacing: 4,
                             children: [
                               IconBtn(Icons.view_sidebar_outlined, switch (PlayerScope.read(context).settings.sidebarMode) {
+                                'expanded' when touch(context) => 'Sidebar: icons only',
                                 'expanded' => 'Sidebar: slide out on hover',
                                 'hover' => 'Sidebar: icons only',
                                 _ => 'Sidebar: expanded',
