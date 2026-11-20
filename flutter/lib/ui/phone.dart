@@ -10,6 +10,7 @@ import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:cascade/core/browse_mode.dart';
+import 'package:cascade/core/offline_index.dart' show downloadSections;
 import 'package:cascade/core/data.dart';
 import 'package:cascade/core/nav.dart';
 import 'package:cascade/ui/now_playing.dart';
@@ -26,18 +27,20 @@ import 'package:cascade/ui/scopes.dart';
 
 typedef _Tab = (String id, String label, IconData icon, IconData selected);
 
+// Search is a tab (where Downloads was): Downloads are in Library as on the
+// desktop's sidebar, switching Offline Mode, and managed in Settings > Offline.
 const _musicTabs = <_Tab>[
   ('home', 'Home', Icons.home_outlined, Icons.home_rounded),
+  ('search', 'Search', Icons.search_outlined, Icons.search_rounded),
   ('library', 'Library', Icons.library_music_outlined, Icons.library_music_rounded),
-  ('downloads', 'Downloads', Icons.download_outlined, Icons.download_rounded),
   ('settings', 'Settings', Icons.settings_outlined, Icons.settings_rounded),
 ];
 
 const _videoTabs = <_Tab>[
   ('vhome', 'Home', Icons.home_outlined, Icons.home_rounded),
+  ('search', 'Search', Icons.search_outlined, Icons.search_rounded),
   ('movies', 'Movies', Icons.movie_outlined, Icons.movie_rounded),
   ('shows', 'Shows', Icons.tv_outlined, Icons.tv_rounded),
-  ('downloads', 'Downloads', Icons.download_outlined, Icons.download_rounded),
   ('settings', 'Settings', Icons.settings_outlined, Icons.settings_rounded),
 ];
 
@@ -92,7 +95,12 @@ class _PhoneShellState extends State<PhoneShell> {
     if (save) SharedPreferences.getInstance().then((p) => p.setString('browseMode', m), onError: (_) => false);
   }
 
-  void _search() => _nav.open(PageKind.view, ['search']);
+  /// A search bar tapped: the Search tab, its field ready to type in.
+  bool _focusSearch = false;
+  void _search() {
+    _focusSearch = true;
+    _nav.show('search');
+  }
 
   // Android's Back: Now Playing first, then this tab's history, then Home,
   // then out of the app.
@@ -221,12 +229,14 @@ class _PhoneShellState extends State<PhoneShell> {
 
   Widget _body() {
     final e = _nav.top;
-    if (e.page == PageKind.view && e.args.firstOrNull == 'search') return _PhoneSearch(query: _query);
     if (e.page != null) return pageFor(e);
+    final focus = _focusSearch;
+    _focusSearch = false;
     return switch (_nav.view) {
+      'search' => _PhoneSearch(query: _query, autofocus: focus),
       'home' => _Home(onSearch: _search, onMode: () => _setMode('video')),
       'vhome' => _VideoHome(onSearch: _search, onMode: () => _setMode('music')),
-      'library' => _LibraryHub(onSearch: _search),
+      'library' => const _LibraryHub(),
       'settings' => const SettingsPanel(),
       final v => viewFor(v),
     };
@@ -417,13 +427,13 @@ class _VideoHome extends StatelessWidget {
 
 /// The Library tab: one row per view, then Recently added.
 class _LibraryHub extends StatelessWidget {
-  const _LibraryHub({required this.onSearch});
-  final VoidCallback onSearch;
+  const _LibraryHub();
 
   @override
   Widget build(BuildContext context) {
     final lib = LibraryScope.of(context);
     final nav = NavScope.read(context);
+    final held = downloadSections(DownloadsScope.of(context).index);
     final rows = [
       ('albums', 'Albums', Icons.album_outlined),
       ('artists', 'Artists', Icons.person_outline_rounded),
@@ -438,17 +448,8 @@ class _LibraryHub extends StatelessWidget {
       padding: const EdgeInsets.only(bottom: 24),
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(16, 12, 4, 8),
-          child: Row(
-            children: [
-              Expanded(child: Text('Library', style: Txt.title())),
-              IconButton(
-                tooltip: 'Search',
-                onPressed: onSearch,
-                icon: Icon(Icons.search_rounded, color: A.text),
-              ),
-            ],
-          ),
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+          child: Text('Library', style: Txt.title()),
         ),
         for (final (id, label, icon) in rows)
           Hover(
@@ -467,11 +468,40 @@ class _LibraryHub extends StatelessWidget {
                   Expanded(
                     child: Text(label, style: ts(15, w: FontWeight.w500)),
                   ),
+                  if (held[id] case final d?) DownloadMark(d),
                   if (id == 'rediscover')
                     Text(
                       'New',
                       style: ts(12, w: FontWeight.w500, c: K.accent),
                     ),
+                ],
+              ),
+            ),
+          ),
+        // Downloads switch Offline Mode (only your downloads, still signed in),
+        // as on the desktop's sidebar; they are managed in Settings > Offline.
+        if (!lib.demo)
+          Hover(
+            onTap: () => lib.setOfflineMode(!lib.offline),
+            label: lib.offline ? 'Offline Mode is on: only your downloads. Tap to go back online.' : 'Offline Mode: only your downloads',
+            builder: (_, _) => Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+              child: Row(
+                children: [
+                  Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(color: lib.offline ? K.accentTint : K.surface, borderRadius: BorderRadius.circular(12)),
+                    child: Icon(Icons.download_outlined, size: 20, color: K.accent),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Text('Downloads', style: ts(15, w: FontWeight.w500)),
+                  ),
+                  Text(
+                    lib.offline ? 'Offline' : 'Online',
+                    style: ts(12, w: FontWeight.w500, c: lib.offline ? K.accent : K.text3),
+                  ),
                 ],
               ),
             ),
@@ -486,24 +516,23 @@ class _LibraryHub extends StatelessWidget {
 
 /// Search with its own field, since phones have no title bar.
 class _PhoneSearch extends StatelessWidget {
-  const _PhoneSearch({required this.query});
+  const _PhoneSearch({required this.query, this.autofocus = false});
   final TextEditingController query;
+
+  /// Opened from a search bar: the field ready to type in.
+  final bool autofocus;
 
   @override
   Widget build(BuildContext context) => Column(
     children: [
       Padding(
-        padding: const EdgeInsets.fromLTRB(8, 6, 16, 0),
+        padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
         child: Row(
           children: [
-            IconButton(
-              onPressed: () => NavScope.read(context).back(),
-              icon: Icon(Icons.arrow_back_rounded, color: A.text),
-            ),
             Expanded(
               child: TextField(
                 controller: query,
-                autofocus: true,
+                autofocus: autofocus,
                 style: ts(16),
                 textInputAction: TextInputAction.search,
                 decoration: InputDecoration(

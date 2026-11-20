@@ -699,7 +699,7 @@ class _NavRow extends StatelessWidget {
                       style: ts(13, w: active ? FontWeight.w600 : FontWeight.w500, c: active || on ? K.text : K.text2),
                     ),
                   ),
-                  if (downloads case final d?) _DownloadMark(d),
+                  if (downloads case final d?) DownloadMark(d),
                   if (badge != null)
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
@@ -727,8 +727,8 @@ class _NavRow extends StatelessWidget {
 
 /// A sidebar section's downloads: a ring filling round an arrow while they
 /// come in, a download mark with a check in its corner once all are here.
-class _DownloadMark extends StatelessWidget {
-  const _DownloadMark(this.d);
+class DownloadMark extends StatelessWidget {
+  const DownloadMark(this.d, {super.key});
   final ({int done, int total}) d;
 
   @override

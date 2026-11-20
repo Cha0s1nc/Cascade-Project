@@ -97,7 +97,7 @@ void main() {
             await go(tab, last: true);
           }
         } else {
-          for (final tab in ['Library', 'Downloads', 'Settings', 'Home']) {
+          for (final tab in ['Search', 'Library', 'Settings', 'Home']) {
             await go(tab, last: true);
           }
         }
