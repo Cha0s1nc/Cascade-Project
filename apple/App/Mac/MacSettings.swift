@@ -209,7 +209,7 @@ private struct LibraryTab: View {
                 }
             }
         }
-        .formStyle(.grouped)
+        .formStyle(CxFormStyle())
     }
 
     private func scan() {
@@ -295,7 +295,7 @@ private struct PlaybackTab: View {
                 }
             }
         }
-        .formStyle(.grouped)
+        .formStyle(CxFormStyle())
         .onAppear {
             crossfade = Int(state.player?.crossfadeSeconds ?? 0)
             if crossfade > 0 { crossfadeLength = crossfade }
@@ -331,7 +331,7 @@ private struct LyricsTab: View {
             }
             LyricsSettingsSection()
         }
-        .formStyle(.grouped)
+        .formStyle(CxFormStyle())
     }
 }
 
@@ -343,7 +343,7 @@ private struct IntegrationsTab: View {
             DiscordSettingsSection()
             WaterfallSettingsSection()
         }
-        .formStyle(.grouped)
+        .formStyle(CxFormStyle())
     }
 }
 
@@ -423,7 +423,7 @@ private struct AccountTab: View {
                 Button("Sign Out", role: .destructive) { confirmingSignOut = true }
             }
         }
-        .formStyle(.grouped)
+        .formStyle(CxFormStyle())
         .confirmationDialog("Sign out?", isPresented: $confirmingSignOut, titleVisibility: .visible) {
             Button("Sign Out", role: .destructive) { Task { await state.signOut() } }
         }
@@ -527,7 +527,7 @@ private struct AboutTab: View {
                 #endif
             }
         }
-        .formStyle(.grouped)
+        .formStyle(CxFormStyle())
         .confirmationDialog("Switch to the Electron build?", isPresented: $confirmingSwitch, titleVisibility: .visible) {
             Button("Download the Electron Build") { Task { await updates.prepareSwitchBack() } }
         } message: {

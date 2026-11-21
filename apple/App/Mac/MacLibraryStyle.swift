@@ -428,3 +428,78 @@ struct CxLikeButton: View {
         .disabled(state.isOffline)
     }
 }
+
+/// Personality v1's settings cards (Flutter's SettingsGroup and SettingRow) as a Form style:
+/// each section a card on the surface with a line round it, its title in caps above a rule,
+/// one row per control with a rule between, and its footer as a quiet note under the card.
+/// Controls keep the grouped form's layout: label at the left, control at the right.
+struct CxFormStyle: FormStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                ForEach(sections: configuration.content) { section in
+                    CxFormSection(section: section)
+                }
+            }
+            .padding(.horizontal, 22).padding(.top, 6).padding(.bottom, 32)
+        }
+        .toggleStyle(CxRowToggleStyle())
+        .labeledContentStyle(CxRowLabeledContentStyle())
+    }
+}
+
+private struct CxFormSection: View {
+    let section: SectionConfiguration
+    @Environment(\.uiScale) private var zoom
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: 0) {
+                if !section.header.isEmpty {
+                    section.header
+                        .font(.cxBody(11 * zoom, .semibold)).tracking(0.66 * zoom).textCase(.uppercase)
+                        .foregroundStyle(Cx.text3)
+                        .padding(.horizontal, 14).padding(.vertical, 10)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Cx.line.frame(height: 1)
+                }
+                Group(subviews: section.content) { rows in
+                    ForEach(rows) { row in
+                        row
+                            .frame(maxWidth: .infinity, minHeight: 24, alignment: .leading)
+                            .padding(.horizontal, 14).padding(.vertical, 10)
+                        if row.id != rows.last?.id { Cx.line.frame(height: 1) }
+                    }
+                }
+            }
+            .background(Cx.surface, in: RoundedRectangle(cornerRadius: 10))
+            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Cx.line))
+            if !section.footer.isEmpty {
+                section.footer
+                    .font(.cxBody(11 * zoom)).foregroundStyle(Cx.text3)
+                    .padding(.horizontal, 14)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+    }
+}
+
+/// A switch row: the label (and any description under it) at the left, the switch at the right.
+private struct CxRowToggleStyle: ToggleStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(spacing: 16) {
+            configuration.label.frame(maxWidth: .infinity, alignment: .leading)
+            Toggle("", isOn: configuration.$isOn).toggleStyle(.switch).labelsHidden().controlSize(.small)
+        }
+    }
+}
+
+/// LabeledContent in a settings row: the label at the left, its value or control at the right.
+private struct CxRowLabeledContentStyle: LabeledContentStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(spacing: 16) {
+            configuration.label.frame(maxWidth: .infinity, alignment: .leading)
+            configuration.content.foregroundStyle(Cx.text2)
+        }
+    }
+}

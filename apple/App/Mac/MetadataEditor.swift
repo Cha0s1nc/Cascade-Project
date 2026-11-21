@@ -112,10 +112,14 @@ struct WaterfallSettingsSection: View {
 
     var body: some View {
         Section {
-            TextField("Relay server", text: $relay, prompt: Text(Waterfall.defaultRelay))
-                .autocorrectionDisabled()
-                // As the desktop saves it: no trailing slashes.
-                .onSubmit { relay = relay.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: "/+$", with: "", options: .regularExpression) }
+            // Labeled: outside the system form a field's label is only its placeholder.
+            LabeledContent("Relay server") {
+                TextField("Relay server", text: $relay, prompt: Text(Waterfall.defaultRelay))
+                    .labelsHidden()
+                    .autocorrectionDisabled()
+                    // As the desktop saves it: no trailing slashes.
+                    .onSubmit { relay = relay.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: "/+$", with: "", options: .regularExpression) }
+            }
             Toggle("Guests can add to the queue", isOn: $guestAdds)
             Toggle("Guests can control playback", isOn: $guestControl)
         } header: {
