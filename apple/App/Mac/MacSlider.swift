@@ -70,7 +70,7 @@ struct MacSlider: View {
         .onChange(of: focused) { _, now in if !now { clicked = false } }
         .overlay {
             if focused && !clicked {
-                RoundedRectangle(cornerRadius: 4).stroke(Color.accentColor.opacity(0.7), lineWidth: 2).padding(-3)
+                RoundedRectangle(cornerRadius: 4).stroke(Cx.accent.opacity(0.7), lineWidth: 2).padding(-3)
             }
         }
         .onKeyPress(keys: [.leftArrow, .rightArrow, .upArrow, .downArrow, .pageUp, .pageDown, .home, .end]) { press in

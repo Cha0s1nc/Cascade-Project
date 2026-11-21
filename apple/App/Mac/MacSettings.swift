@@ -79,11 +79,17 @@ struct MacSettingsView: View {
 
     @SceneStorage("mac.settingsTab") private var tab: Tab = .library
     @FocusState private var tabsFocused: Bool
+    @State private var hovered: Tab?
+    @State private var width: CGFloat = 0
+    @Namespace private var pill
+    @Environment(\.uiScale) private var zoom
 
+    /// Personality v1, as Flutter's SettingsPanel: the tabs in a pill track whose accent pill
+    /// slides to the chosen one, then the tab's grouped settings at most 760 pt wide, on the
+    /// page's background. The rows are the system's grouped Form rows.
     var body: some View {
         VStack(spacing: 0) {
             tabBar
-            Divider()
             Group {
                 switch tab {
                 case .library: LibraryTab()
@@ -94,11 +100,17 @@ struct MacSettingsView: View {
                 case .about: AboutTab()
                 }
             }
+            .scrollContentBackground(.hidden)
+            .contentMargins(.horizontal, max(0, (width - 760) / 2), for: .scrollContent)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
         }
+        .tint(Cx.accent)
+        .background(Cx.bg)
         .frame(minWidth: 520, idealWidth: 640, minHeight: 420, idealHeight: 580)
         .onAppear {
-            tabsFocused = true
+            // No focus grab here: focusing the strip as the page opened made both of the
+            // player bar's sliders draw their keyboard ring. A click on a tab focuses it.
             #if DEBUG
             // Test hook for looking at a tab without clicking: `-cascade.settingsTab playback`.
             if let raw = UserDefaults.standard.string(forKey: "cascade.settingsTab"), let t = Tab(rawValue: raw) { tab = t }
@@ -109,25 +121,39 @@ struct MacSettingsView: View {
     /// Arrow keys move between tabs while the strip has focus, as the desktop's
     /// tab list does; Command-1 to 6 jump straight to one.
     private var tabBar: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 2) {
             ForEach(Array(Tab.allCases.enumerated()), id: \.element) { index, item in
-                Button { tab = item; tabsFocused = true } label: {
-                    VStack(spacing: 3) {
-                        Image(systemName: item.symbol).font(.system(size: 17))
-                        Text(item.title).scaledFont(.caption)
+                let on = tab == item
+                Button {
+                    withAnimation(.spring(duration: 0.35, bounce: 0.15)) { tab = item }
+                    tabsFocused = true
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: item.symbol).font(.system(size: 12 * zoom, weight: .semibold))
+                        Text(item.title).font(.cxBody(12.5 * zoom, .semibold))
                     }
-                    .frame(width: 84, height: 44)
-                    .background(tab == item ? Color.accentColor.opacity(0.18) : .clear, in: RoundedRectangle(cornerRadius: 8))
-                    .foregroundStyle(tab == item ? Color.accentColor : .secondary)
-                    .contentShape(Rectangle())
+                    .foregroundStyle(on ? Cx.ink : hovered == item ? Cx.text : Cx.text2)
+                    .padding(.horizontal, 14 * zoom).padding(.vertical, 6 * zoom)
+                    .background {
+                        if on {
+                            Capsule().fill(Cx.accent)
+                                .shadow(color: Cx.accentTint, radius: 5, y: 2)
+                                .matchedGeometryEffect(id: "pill", in: pill)
+                        }
+                    }
+                    .contentShape(Capsule())
                 }
                 .buttonStyle(.plain)
+                .onHover { hovered = $0 ? item : (hovered == item ? nil : hovered) }
                 .keyboardShortcut(KeyEquivalent(Character("\(index + 1)")), modifiers: .command)
                 .accessibilityLabel(item.title)
-                .accessibilityAddTraits(tab == item ? .isSelected : [])
+                .accessibilityAddTraits(on ? .isSelected : [])
             }
         }
-        .padding(8)
+        .padding(3)
+        .background(Cx.surface, in: Capsule())
+        .overlay(Capsule().strokeBorder(Cx.line))
+        .padding(.top, 22).padding(.bottom, 12)
         .frame(maxWidth: .infinity)
         .focusable()
         .focused($tabsFocused)
@@ -139,7 +165,7 @@ struct MacSettingsView: View {
     private func move(_ delta: Int) -> KeyPress.Result {
         let all = Tab.allCases
         guard let i = all.firstIndex(of: tab) else { return .ignored }
-        tab = all[(i + delta + all.count) % all.count]
+        withAnimation(.spring(duration: 0.35, bounce: 0.15)) { tab = all[(i + delta + all.count) % all.count] }
         return .handled
     }
 }
