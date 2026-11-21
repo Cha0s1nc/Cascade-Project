@@ -338,3 +338,89 @@ struct CxSectionTitle: View {
 func cxCount(_ n: Int, _ one: String, _ many: String? = nil) -> String {
     "\(n.formatted(.number.locale(Locale(identifier: "en_US")))) \(n == 1 ? one : many ?? one + "s")"
 }
+
+/// One song in an album, top songs or a list (Flutter's TrackRow): its number (the
+/// playing bars while it plays, a play mark under the pointer), the title and a line
+/// under it, plays and length. Click plays from here; right-click is its menu.
+struct CxTrackRow: View {
+    let track: JfItem
+    let number: Int
+    var showsArt = false
+    var second: String?
+    let play: () -> Void
+
+    @Environment(AppState.self) private var state
+    @Environment(\.uiScale) private var zoom
+    @State private var hovering = false
+
+    var body: some View {
+        let current = state.player?.item?.id == track.id
+        let playing = current && state.player?.isPaused == false
+        Button(action: play) {
+            HStack(spacing: 0) {
+                Group {
+                    if playing {
+                        PlayingIndicator(itemId: track.id)
+                    } else if hovering {
+                        Image(systemName: "play.fill").font(.system(size: 11 * zoom)).foregroundStyle(Cx.text)
+                    } else {
+                        Text("\(number)").cx(.small).monospacedDigit().foregroundStyle(current ? Cx.accent : Cx.text3)
+                    }
+                }
+                .frame(width: 30 * zoom, alignment: .leading)
+                if showsArt {
+                    ArtworkView(itemId: track.albumId ?? track.id, size: 40).padding(.trailing, 12 * zoom)
+                } else {
+                    Spacer().frame(width: 8 * zoom)
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(track.name ?? "Unknown").cx(.row).foregroundStyle(current ? Cx.accent : Cx.text)
+                        .lineLimit(1).explicitMark(track.id)
+                    if let second, !second.isEmpty {
+                        Text(second).cx(.small).foregroundStyle(Cx.text3).lineLimit(1)
+                    }
+                }
+                Spacer(minLength: 12)
+                if let plays = track.userData?.playCount, plays > 0 {
+                    Text(plays == 1 ? "1 play" : "\(plays) plays").cx(.small).foregroundStyle(Cx.text3)
+                        .frame(width: 80 * zoom, alignment: .trailing)
+                }
+                Text(track.runTimeTicks.map { clock(seconds(fromTicks: $0)) } ?? "")
+                    .cx(.small).monospacedDigit().foregroundStyle(Cx.text3)
+                    .frame(width: 52 * zoom, alignment: .trailing)
+            }
+            .padding(.horizontal, 12 * zoom)
+            .frame(height: (showsArt ? 56 : 46) * zoom)
+            .background(current ? Cx.surface2 : hovering ? Cx.line : .clear, in: RoundedRectangle(cornerRadius: 10))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { on in withAnimation(.easeOut(duration: on ? 0.12 : 0.35)) { hovering = on } }
+        .trackContextMenu(track)
+    }
+}
+
+/// The header's heart: flips only once the server says yes (CODEMAP rule 1).
+struct CxLikeButton: View {
+    let item: JfItem
+    @Environment(AppState.self) private var state
+    @State private var favorite: Bool?
+    private var isFavorite: Bool { favorite ?? item.userData?.isFavorite ?? false }
+
+    var body: some View {
+        CxIconButton(symbol: isFavorite ? "heart.fill" : "heart", help: isFavorite ? "Unlike" : "Like",
+                     tint: isFavorite ? Cx.like : nil) {
+            guard let client = state.client else { return }
+            let target = !isFavorite
+            Task {
+                do {
+                    try await client.setFavorite(target, itemId: item.id)
+                    favorite = target
+                } catch {
+                    announceWriteFailed(target ? "add to Favorites" : "remove from Favorites")
+                }
+            }
+        }
+        .disabled(state.isOffline)
+    }
+}

@@ -20,6 +20,96 @@ struct ArtistDetailView: View {
     private var topSongs: [JfItem] { ArtistPage.topSongs(songs) }
 
     var body: some View {
+        content
+            .navigationTitle(artist.name ?? "Artist")
+            .task { await load() }
+    }
+
+    #if os(macOS)
+    @Environment(\.uiScale) private var zoom
+    @State private var width: CGFloat = 0
+
+    /// Personality v1, as Flutter's ArtistPage: the round portrait in the big header, your
+    /// top songs with About beside them on a wide window, then the albums and similar artists.
+    private var content: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                CxDetailHeader(label: "Artist", title: artist.name ?? "Unknown Artist", artId: artist.id, round: true,
+                               meta: macMeta, voice: songs.isEmpty ? nil : macVoice) {
+                    PillButton("Play", symbol: "play.fill", primary: true) {
+                        Task { await state.player?.play(await allSongs(), startIndex: 0) }
+                    }
+                    PillButton("Shuffle", symbol: "shuffle") { Task { await playShuffled(await allSongs(), on: state.player) } }
+                    CxLikeButton(item: artist)
+                }
+                VStack(alignment: .leading, spacing: 0) {
+                    if width >= 900 {
+                        HStack(alignment: .top, spacing: 32) {
+                            topSongsColumn.frame(maxWidth: .infinity, alignment: .topLeading)
+                            aboutColumn.frame(maxWidth: .infinity, alignment: .topLeading)
+                        }
+                    } else {
+                        topSongsColumn
+                        aboutColumn.padding(.top, 30)
+                    }
+                    if !albums.isEmpty {
+                        CxSectionTitle(title: "Albums")
+                        ItemTiles(items: albums)
+                    }
+                    if !similar.isEmpty {
+                        CxSectionTitle(title: "Similar artists")
+                        ItemTiles(items: Array(similar.prefix(12)))
+                    }
+                    LoadingOverlay(isLoading: isLoading, error: error, isEmpty: albums.isEmpty, skeleton: .grid)
+                }
+                .padding(.horizontal, 36 * zoom).padding(.bottom, 40 * zoom)
+                .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
+            }
+        }
+    }
+
+    @ViewBuilder private var topSongsColumn: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            CxSectionTitle(title: "Your top songs", top: 0)
+            if topSongs.isEmpty {
+                Text(isLoading ? " " : "Play something of theirs and it shows here.").cx(.regular).foregroundStyle(Cx.text3)
+            }
+            ForEach(Array(topSongs.enumerated()), id: \.element.id) { index, track in
+                CxTrackRow(track: track, number: index + 1, showsArt: true, second: track.album) {
+                    Task { await state.player?.play(topSongs, startIndex: index) }
+                }
+            }
+        }
+    }
+
+    /// Clamped to six lines with More, as Flutter's.
+    @ViewBuilder private var aboutColumn: some View {
+        if let overview, !overview.isEmpty {
+            VStack(alignment: .leading, spacing: 0) {
+                CxSectionTitle(title: "About", top: 0)
+                Text(overview)
+                    .cx(.regular).foregroundStyle(Cx.text2).lineSpacing(5)
+                    .lineLimit(bioExpanded ? nil : 6)
+                if overview.count > 400 {
+                    Button(bioExpanded ? "Less" : "More") { withAnimation { bioExpanded.toggle() } }
+                        .buttonStyle(.plain).cx(.strong).foregroundStyle(Cx.accent).padding(.top, 6)
+                }
+            }
+        }
+    }
+
+    /// "9 albums · 112 songs in your library".
+    private var macMeta: String {
+        guard !isLoading else { return "" }
+        return "\(cxCount(albums.count, "album")) \u{00B7} \(cxCount(songs.count, "song")) in your library"
+    }
+
+    private var macVoice: String {
+        let plays = songs.reduce(0) { $0 + ($1.userData?.playCount ?? 0) }
+        return plays == 0 ? "Nothing played yet." : "You\u{2019}ve played their songs \(plays) \(plays == 1 ? "time" : "times")."
+    }
+    #else
+    private var content: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
                 header
@@ -44,9 +134,8 @@ struct ArtistDetailView: View {
                 LoadingOverlay(isLoading: isLoading, error: error, isEmpty: albums.isEmpty, skeleton: .grid)
             }
         }
-        .navigationTitle(artist.name ?? "Artist")
-        .task { await load() }
     }
+    #endif
 
     /// Albums first, since they are the page; the rest fill in as they come,
     /// and each can fail on its own without blanking the page.

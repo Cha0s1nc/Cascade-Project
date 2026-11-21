@@ -137,8 +137,8 @@ extension ButtonStyle where Self == HoverButtonStyle {
 }
 
 /// A track row as the desktop draws one (styles/library.css .track-row): a faint rounded wash
-/// under the pointer, quick in (0.12 s) and slow out (0.35 s), and the playing song tinted with
-/// the accent, its title in the accent color.
+/// under the pointer, quick in (0.12 s) and slow out (0.35 s), and the playing song on a
+/// raised band, its title in the accent color.
 private struct DesktopTrackRow: ViewModifier {
     let itemId: String
     @Environment(AppState.self) private var state
@@ -146,14 +146,13 @@ private struct DesktopTrackRow: ViewModifier {
 
     func body(content: Content) -> some View {
         let playing = state.player?.item?.id == itemId
+        // Personality v1 (Flutter's TrackRow): the playing song on surface-2, the line color under the pointer.
         content
-            .foregroundStyle(playing ? AnyShapeStyle(MacTheme.shared.accent) : AnyShapeStyle(.foreground))
+            .foregroundStyle(playing ? AnyShapeStyle(Cx.accent) : AnyShapeStyle(Cx.text))
             .background {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 6).fill(MacTheme.shared.accent.opacity(playing ? 0.12 : 0))
-                    RoundedRectangle(cornerRadius: 6).fill(.primary.opacity(hovering ? 0.06 : 0))
-                }
-                .padding(.horizontal, -6)
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(playing ? Cx.surface2 : hovering ? Cx.line : .clear)
+                    .padding(.horizontal, -6)
             }
             .onHover { on in
                 withAnimation(.easeOut(duration: on ? 0.12 : 0.35)) { hovering = on }

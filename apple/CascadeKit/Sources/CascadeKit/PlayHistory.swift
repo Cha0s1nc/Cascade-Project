@@ -18,6 +18,22 @@ public enum PlayHistory {
         return ISO8601DateFormatter().date(from: string.replacing(/\.\d+/, with: ""))
     }
 
+    /// When something was last played, as a voice line says it (Flutter's whenPlayed):
+    /// "today", "yesterday", "on Sunday" within the week, else "on March 2", with the
+    /// year when it is not this one. Empty for no date.
+    public static func whenPlayed(_ iso: String?, now: Date = .now, calendar: Calendar = .current) -> String {
+        guard let played = date(iso) else { return "" }
+        let days = calendar.dateComponents([.day], from: calendar.startOfDay(for: played),
+                                           to: calendar.startOfDay(for: now)).day ?? 0
+        if days <= 0 { return "today" }
+        if days == 1 { return "yesterday" }
+        var style = Date.FormatStyle(calendar: calendar, timeZone: calendar.timeZone).locale(Locale(identifier: "en_US"))
+        if days < 7 { return "on " + played.formatted(style.weekday(.wide)) }
+        style = style.month(.wide).day()
+        if calendar.component(.year, from: played) != calendar.component(.year, from: now) { style = style.year() }
+        return "on " + played.formatted(style)
+    }
+
     /// Played songs newest first. Several libraries come back one after the
     /// other, each in its own order, so the merged list is put back in one.
     public static func newestFirst(_ items: [JfItem]) -> [JfItem] {

@@ -43,4 +43,16 @@ struct PlayHistoryTests {
         let items = [play("old", "2026-01-01T00:00:00Z"), play("new", "2026-09-01T00:00:00.5Z"), play("none", nil)]
         #expect(PlayHistory.newestFirst(items).map(\.id) == ["new", "old", "none"])
     }
+
+    // Flutter's whenPlayed (flutter/lib/ui/pages/detail.dart), by calendar day.
+    @Test func whenPlayed() {
+        let now = PlayHistory.date("2026-11-20T18:00:00Z")! // Friday noon in Chicago
+        func when(_ iso: String?) -> String { PlayHistory.whenPlayed(iso, now: now, calendar: calendar) }
+        #expect(when("2026-11-20T07:00:00.1234567Z") == "today")
+        #expect(when("2026-11-20T04:00:00Z") == "yesterday") // 10 pm Thursday in Chicago
+        #expect(when("2026-11-15T18:00:00Z") == "on Sunday")
+        #expect(when("2026-11-13T18:00:00Z") == "on November 13")
+        #expect(when("2025-03-02T18:00:00Z") == "on March 2, 2025")
+        #expect(when(nil) == "")
+    }
 }

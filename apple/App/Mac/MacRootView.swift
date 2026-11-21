@@ -180,10 +180,18 @@ struct MacRootView: View {
             if UserDefaults.standard.bool(forKey: "cascade.nowPlaying") { state.nowPlayingOpen = true }
             DebugScrollProbe.runIfAsked()
         }
-        // `-cascade.openItem <id>` pushes an album, artist or playlist page in the section.
+        // `-cascade.openItem <id>` pushes an album, artist or playlist page in the section;
+        // `album`, `artist` or `playlist` picks the last played album, its artist, or the first playlist.
         .task {
-            guard let id = UserDefaults.standard.string(forKey: "cascade.openItem"),
-                  let item = try? await state.client?.item(id: id) else { return }
+            guard let want = UserDefaults.standard.string(forKey: "cascade.openItem"), let client = state.client else { return }
+            let recent = want == "album" || want == "artist" ? try? await client.recentlyPlayedAlbums(maxAlbums: 1).first : nil
+            let id: String? = switch want {
+            case "album": recent?.id
+            case "artist": (recent?.albumArtists?.first ?? recent?.artistItems?.first)?.id
+            case "playlist": try? await client.playlists().first?.id
+            default: want
+            }
+            guard let id, let item = try? await client.item(id: id) else { return }
             pending = (section, item)
         }
         #endif
