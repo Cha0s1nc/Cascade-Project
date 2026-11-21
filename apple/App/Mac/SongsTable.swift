@@ -130,25 +130,25 @@ private struct SongsTable: View {
             }
             .width(min: 160, ideal: 280)
             TableColumn("Artist", value: \.songArtist) { track in
-                cell(track) { Text(track.songArtist).lineLimit(1).foregroundStyle(Cx.text2) }
+                cell(track) { Text(track.songArtist).lineLimit(1).foregroundStyle(.secondary) }
             }
             .width(min: 100, ideal: 180)
             TableColumn("Album", value: \.songAlbum) { track in
-                cell(track) { Text(track.songAlbum).lineLimit(1).foregroundStyle(Cx.text2) }
+                cell(track) { Text(track.songAlbum).lineLimit(1).foregroundStyle(.secondary) }
             }
             .width(min: 100, ideal: 200)
             TableColumn("Date Added", value: \.songAdded) { track in
-                cell(track) { Text(shortDate(track.dateCreated)).foregroundStyle(Cx.text3) }
+                cell(track) { Text(shortDate(track.dateCreated)).foregroundStyle(.tertiary) }
             }
             .width(min: 90, ideal: 110)
             TableColumn("Last Played", value: \.songPlayed) { track in
-                cell(track) { Text(shortDate(track.userData?.lastPlayedDate)).foregroundStyle(Cx.text3) }
+                cell(track) { Text(shortDate(track.userData?.lastPlayedDate)).foregroundStyle(.tertiary) }
             }
             .width(min: 90, ideal: 110)
             TableColumn("Time") { track in
                 cell(track) {
                     Text(track.runTimeTicks.map { clock(seconds(fromTicks: $0)) } ?? "")
-                        .monospacedDigit().foregroundStyle(Cx.text3)
+                        .monospacedDigit().foregroundStyle(.tertiary)
                 }
             }
             .width(52)

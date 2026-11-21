@@ -148,7 +148,8 @@ private struct DesktopTrackRow: ViewModifier {
         let playing = state.player?.item?.id == itemId
         // Personality v1 (Flutter's TrackRow): the playing song on surface-2, the line color under the pointer.
         content
-            .foregroundStyle(playing ? AnyShapeStyle(Cx.accent) : AnyShapeStyle(Cx.text))
+            // Not playing: the hierarchical foreground, which turns white on a selected row.
+            .foregroundStyle(playing ? AnyShapeStyle(Cx.accent) : AnyShapeStyle(.foreground))
             .background {
                 RoundedRectangle(cornerRadius: 10)
                     .fill(playing ? Cx.surface2 : hovering ? Cx.line : .clear)

@@ -256,6 +256,9 @@ struct CxDetailHeader<Actions: View>: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.horizontal, 36 * zoom).padding(.top, 30 * zoom).padding(.bottom, 26 * zoom)
+        // Its full height always: over a greedy list (the playlist page with its bulk bar),
+        // the title's minimumScaleFactor let the header give up height by shrinking the title.
+        .fixedSize(horizontal: false, vertical: true)
         .background(alignment: .top) {
             LinearGradient(colors: [(tint ?? Cx.accentDeep).opacity(scheme == .dark ? 0.45 : 0.22), .clear],
                            startPoint: .top, endPoint: .bottom)

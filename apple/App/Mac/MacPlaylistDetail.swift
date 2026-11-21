@@ -171,22 +171,22 @@ struct MacPlaylistDetail: View {
 
     private func row(_ track: JfItem, index: Int) -> some View {
         HStack(spacing: 10) {
-            Text("\(index + 1)").cx(.small).foregroundStyle(Cx.text3).monospacedDigit().frame(width: 28, alignment: .trailing)
+            Text("\(index + 1)").cx(.small).foregroundStyle(.tertiary).monospacedDigit().frame(width: 28, alignment: .trailing)
             PlayingIndicator(itemId: track.id)
             ArtworkView(itemId: track.albumId ?? track.id, size: 36)
             VStack(alignment: .leading, spacing: 2) {
                 Text(track.name ?? "").cx(.row).lineLimit(1).explicitMark(track.id)
-                Text(track.albumArtist ?? track.artists?.first ?? "").cx(.small).foregroundStyle(Cx.text3).lineLimit(1)
+                Text(track.albumArtist ?? track.artists?.first ?? "").cx(.small).foregroundStyle(.tertiary).lineLimit(1)
             }
             Spacer()
-            Text(track.album ?? "").cx(.small).foregroundStyle(Cx.text2).lineLimit(1).frame(maxWidth: 220, alignment: .leading)
+            Text(track.album ?? "").cx(.small).foregroundStyle(.secondary).lineLimit(1).frame(maxWidth: 220, alignment: .leading)
             if extraTitle != nil {
-                Text(extra(track)).cx(.small).foregroundStyle(Cx.text3).monospacedDigit().frame(width: 100, alignment: .trailing)
+                Text(extra(track)).cx(.small).foregroundStyle(.tertiary).monospacedDigit().frame(width: 100, alignment: .trailing)
                     // The full explanation: Jellyfin has no per-playlist add date.
                     .help(isReal ? "When this song was added to the server library, not to this playlist" : "")
             }
             Text(track.runTimeTicks.map { clock(seconds(fromTicks: $0)) } ?? "").cx(.small).monospacedDigit()
-                .foregroundStyle(Cx.text3).frame(width: 52, alignment: .trailing)
+                .foregroundStyle(.tertiary).frame(width: 52, alignment: .trailing)
         }
         .contentShape(Rectangle())
         .desktopTrackRow(track.id)
