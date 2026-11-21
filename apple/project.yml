@@ -19,6 +19,10 @@ targets:
       # The launch splash logo (SplashView), same art as the desktop splash.
       - path: ../shared/assets/linux-icons/512x512.png
         buildPhase: resources
+      # Personality v1's fonts (Inter, Hanken Grotesk), the Flutter app's copy so there is one.
+      - path: ../flutter/assets/fonts
+        type: folder
+        buildPhase: resources
     dependencies:
       - package: CascadeKit
         product: CascadeKit
@@ -38,6 +42,7 @@ targets:
         # not ask about export compliance on every upload.
         ITSAppUsesNonExemptEncryption: false
         UIBackgroundModes: [audio]
+        UIAppFonts: [fonts/Inter-400.ttf, fonts/Inter-500.ttf, fonts/Inter-600.ttf, fonts/Inter-700.ttf, fonts/HankenGrotesk-400.ttf, fonts/HankenGrotesk-500.ttf, fonts/HankenGrotesk-600.ttf, fonts/HankenGrotesk-700.ttf, fonts/HankenGrotesk-Italic-400.ttf, fonts/HankenGrotesk-Italic-600.ttf]
         UILaunchScreen: {}
         # Declared so the build stops warning that a non-fullscreen app must
         # support every orientation. Music browsing works in all of them.
@@ -75,6 +80,10 @@ targets:
       - App/Assets-tvOS.xcassets
       - path: ../shared/assets/linux-icons/512x512.png
         buildPhase: resources
+      # Personality v1's fonts (Inter, Hanken Grotesk), the Flutter app's copy so there is one.
+      - path: ../flutter/assets/fonts
+        type: folder
+        buildPhase: resources
     dependencies:
       - package: CascadeKit
         product: CascadeKit
@@ -90,6 +99,7 @@ targets:
         # not ask about export compliance on every upload.
         ITSAppUsesNonExemptEncryption: false
         UIBackgroundModes: [audio]
+        UIAppFonts: [fonts/Inter-400.ttf, fonts/Inter-500.ttf, fonts/Inter-600.ttf, fonts/Inter-700.ttf, fonts/HankenGrotesk-400.ttf, fonts/HankenGrotesk-500.ttf, fonts/HankenGrotesk-600.ttf, fonts/HankenGrotesk-700.ttf, fonts/HankenGrotesk-Italic-400.ttf, fonts/HankenGrotesk-Italic-600.ttf]
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: xyz.chaosinc.cascade.tvos
@@ -124,6 +134,10 @@ targets:
       - App/Mac
       - path: ../shared/assets/linux-icons/512x512.png
         buildPhase: resources
+      # Personality v1's fonts (Inter, Hanken Grotesk), the Flutter app's copy so there is one.
+      - path: ../flutter/assets/fonts
+        type: folder
+        buildPhase: resources
       - path: ../shared/assets/icon.icns
         buildPhase: resources
     dependencies:
@@ -136,6 +150,8 @@ targets:
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         CFBundleIconFile: icon
         LSApplicationCategoryType: public.app-category.music
+        # The bundled fonts, relative to Resources.
+        ATSApplicationFontsPath: fonts
         LSMinimumSystemVersion: $(MACOSX_DEPLOYMENT_TARGET)
         # Electron reaches plain-http LAN servers today, so this must too.
         NSAppTransportSecurity:

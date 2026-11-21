@@ -75,3 +75,15 @@ Status: built / partial / not built.
 - Switch between the Electron and native builds, `macBuild`: built
 - Native DMG build, `versions.json` `mac` key, `### Mac` changelog section: built
 - Real-hardware performance comparison with Electron (idle and playing memory, CPU, energy): not built - the debug panel and the `task_info` numbers it needs exist
+
+## Personality v1 (the redesign)
+
+The Penpot file "Cascade Personality v1" (pages SwiftUI / Mac and SwiftUI / iPhone), following the running Flutter app where it moved off the mockups. Seen on this Mac against jellyfin12 on 2026-11-21, in Dark and Light, at the default 1100x700 window.
+
+- Colors and type: built - `App/Sources/Personality.swift` (Cx colors in Dark and Light, Flutter's lighter text3; the type tokens as `.cx(...)`, View > Zoom included). Hanken Grotesk and Inter are bundled from `flutter/assets/fonts` (one copy for both apps; their name tables now give each weight its own PostScript name). Inter is the window's default body font unless the Theme panel's UI font is set. The accent stays the theme's
+- Sidebar: built - Your Cascade as Home, Library, Listening and Video groups with every section at once (picking one switches the Music / Video mode, which search still reads), accent-tint rows, Downloads and Settings at the foot. The Music / Video picker is gone from the toolbar. Rediscover not yet (no page)
+- Title bar: built - on bg, with the centered "Search your library" field and its shortcut. Back and forward buttons not yet
+- Player bar: built - surface with a top line, 48 pt art, the solid accent play button, a 4 pt scrubber, the track-colored volume bar
+- Home: built - one Home for both modes: greeting, the voice line (HomeVoice, worded as Flutter's), Recently played as the Home card (Last played, Previously queued from the restore offer, which no longer shows in the corner on Home, or Now playing, with the art stack behind it) beside eight song tiles, Continue watching, Recently added. The card's "From <playlist>" line is missing (the player does not keep where a queue came from), and there is no Rediscover shelf
+- Not restyled yet: every other page, Now Playing, Settings, the miniplayer, and the iPhone and Apple TV apps (they get the tokens and fonts, nothing else yet)
+

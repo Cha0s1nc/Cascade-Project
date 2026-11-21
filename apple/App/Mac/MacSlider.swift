@@ -12,6 +12,8 @@ struct MacSlider: View {
     var height: CGFloat = 4
     /// The fill. The unfilled part is this at low opacity.
     var fill: Color = MacTheme.shared.accent
+    /// The unfilled part, when it should not be the fill at low opacity.
+    var track: Color?
     /// Spoken name and value for VoiceOver.
     var label: String
     var valueText: (Double) -> String = { "\(Int(($0 * 100).rounded())) percent" }
@@ -34,7 +36,7 @@ struct MacSlider: View {
             let x = max(0, min(1, value)) * bar.size.width
             ZStack(alignment: .leading) {
                 Group {
-                    Capsule().fill(fill.opacity(0.25))
+                    Capsule().fill(track ?? fill.opacity(0.25))
                     Capsule().fill(fill)
                         .frame(width: x)
                 }

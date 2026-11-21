@@ -53,18 +53,11 @@ struct MacRootView: View {
                         .transition(.opacity)
                 }
             }
+            .background(Cx.bg)
+            // The title bar on the page's bg, as the Penpot Mac title bar.
+            .toolbarBackground(Cx.bg, for: .windowToolbar)
+            .toolbarBackgroundVisibility(.visible, for: .windowToolbar)
             .toolbar {
-                ToolbarItem(placement: .navigation) {
-                    // Nothing to switch to on a music-only server, as on the desktop.
-                    if libraries.hasVideoLibrary {
-                        @Bindable var state = state
-                        Picker("Browse", selection: $state.browseMode) {
-                            Text("Music").tag(AppState.BrowseMode.music)
-                            Text("Video").tag(AppState.BrowseMode.video)
-                        }
-                        .pickerStyle(.segmented)
-                    }
-                }
                 ToolbarItem(placement: .primaryAction) {
                     // Offline, it opens Downloads; Waterfall and other devices
                     // both need the server.
@@ -81,23 +74,26 @@ struct MacRootView: View {
                 // with .toolbarPrincipal was sent to the overflow menu with Songs' sort and
                 // filter buttons in the bar.
                 ToolbarItem(placement: .principal) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                        TextField(state.browseMode == .video ? "Search movies and shows" : "Search songs, albums, artists",
-                                  text: $query)
+                    // Personality v1's field: surface-2, 8 pt corners, the shortcut at the end.
+                    HStack(spacing: 8) {
+                        Image(systemName: "magnifyingglass").foregroundStyle(Cx.text3)
+                        TextField("Search your library", text: $query)
                             .textFieldStyle(.plain)
                             .focused($searchFocused)
                             .onExitCommand { query = ""; searchFocused = false }
-                        if !query.isEmpty {
+                        if query.isEmpty {
+                            Text("\u{2318}K").foregroundStyle(Cx.text3).accessibilityHidden(true)
+                        } else {
                             Button { query = "" } label: { Image(systemName: "xmark.circle.fill") }
-                                .buttonStyle(.plain).foregroundStyle(.secondary)
+                                .buttonStyle(.plain).foregroundStyle(Cx.text3)
                                 .accessibilityLabel("Clear search")
                         }
                     }
-                    .padding(.horizontal, 8).padding(.vertical, 5)
-                    .background(.quaternary, in: RoundedRectangle(cornerRadius: 7))
+                    .cx(.small)
+                    .padding(.horizontal, 12).padding(.vertical, 7)
+                    .background(Cx.surface2, in: RoundedRectangle(cornerRadius: 8))
                     // Grows with View > Zoom, so the zoomed placeholder is not cut off.
-                    .frame(width: 280 * min(zoom, 1.5))
+                    .frame(width: 440 * min(zoom, 1.5))
                 }
             }
             .background {
@@ -125,7 +121,8 @@ struct MacRootView: View {
         }
         // Over the library's bottom corner, just above the player bar.
         .overlay(alignment: .bottomTrailing) {
-            if let offer = state.restoreOffer, !state.nowPlayingOpen {
+            // Not on Home, whose card offers the same queue back.
+            if let offer = state.restoreOffer, !state.nowPlayingOpen, section != .home || isSearching {
                 RestoreQueueCard(offer: offer)
                     .padding(.trailing, 16)
                     .padding(.bottom, 76)
@@ -160,16 +157,15 @@ struct MacRootView: View {
         .onChange(of: state.settingsRequests) { section = .settings; query = "" }
         // Leaving a mode strands a section only that mode has; Home and
         // Settings are in both, so they stay.
-        .onChange(of: state.browseMode) {
-            if !MacSection.pinned.contains(section), !MacSection.sidebar(for: state.browseMode).contains(section) { section = .home }
-        }
         .frame(minWidth: 800, minHeight: 560)
         // List rows at the desktop's spacing (its track and queue rows are 45
         // and 53 pt): the macOS default packed them into about 24.
         .environment(\.defaultMinListRowHeight, 44 * zoom)
         // View > Zoom: every text style, cover and row below reads it (UIScale.swift).
         .environment(\.uiScale, zoom)
-        .font(.system(size: 13 * zoom))
+        // font.body (Inter) for anything without a style of its own, unless the Theme
+        // panel's UI font says otherwise (Font.cxBody).
+        .font(.cxBody(13 * zoom))
         #if DEBUG
         // Debug builds only: `-cascade.section songs` opens a section at
         // launch, to check it without clicking (UI scripting is not allowed).
@@ -182,58 +178,65 @@ struct MacRootView: View {
         #endif
     }
 
+    /// Personality v1's sidebar: the Cascade logo as Home ("Your Cascade"), then Library,
+    /// Listening and Video under their caps labels, Downloads and Settings at the foot.
+    /// Both modes' sections show at once, as on Flutter's desktop: picking one switches
+    /// the Music / Video mode it belongs to (search and deep links still read the mode).
+    /// Rows of its own rather than a sidebar List, whose selection is the system's
+    /// highlight, not the accent tint.
     private var sidebar: some View {
-        List(selection: Binding(get: { section }, set: { section = $0 ?? .home; query = "" })) {
-            ForEach(visibleSections) { item in
-                Label(item.title, systemImage: item.symbol).tag(item)
+        VStack(spacing: 0) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 2) {
+                    SidebarBrand(active: section == .home && !isSearching) { go(.home) }
+                    ForEach(MacSection.groups, id: \.title) { group in
+                        let rows = group.sections.filter(isVisible)
+                        if !rows.isEmpty {
+                            Text(group.title).cx(.caps).foregroundStyle(Cx.text3)
+                                .padding(.leading, 10).padding(.top, 16).padding(.bottom, 6)
+                                .accessibilityAddTraits(.isHeader)
+                            ForEach(rows) { item in
+                                SidebarRow(item: item, active: section == item && !isSearching) { go(item) }
+                            }
+                        }
+                    }
+                }
+                .padding(.horizontal, 10).padding(.vertical, 8)
             }
-        }
-        .listStyle(.sidebar)
-        // The desktop's sidebar rows are 36 pt with 15 pt icons; .large is
-        // the closest the system sidebar goes.
-        .environment(\.sidebarRowSize, .large)
-        .safeAreaInset(edge: .bottom, spacing: 0) {
             // Pinned under the list so it is always there, like the desktop's.
             // Downloads above Settings, in both modes: offline it is where
             // everything is, whichever mode is showing.
-            VStack(spacing: 0) {
-                Divider()
-                VStack(spacing: 2) {
-                    ForEach(MacSection.pinned.filter { $0 != .downloads || state.offline != nil }) { item in
-                        Button { section = item; query = "" } label: {
-                            // The list rows' size, not the zoomed window font: the system sidebar
-                            // above ignores View > Zoom, and these were smaller at 1 and far larger at 1.75.
-                            Label(item.title, systemImage: item.symbol)
-                                .font(.system(size: 14))
-                                .imageScale(.large)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.vertical, 9).padding(.horizontal, 10)
-                                .background(section == item ? Color.accentColor.opacity(0.22) : .clear,
-                                            in: RoundedRectangle(cornerRadius: 6))
-                                .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityAddTraits(section == item ? .isSelected : [])
-                    }
+            VStack(spacing: 2) {
+                ForEach(MacSection.pinned.filter { $0 != .downloads || state.offline != nil }) { item in
+                    SidebarRow(item: item, active: section == item && !isSearching) { go(item) }
                 }
-                .padding(8)
             }
+            .padding(.horizontal, 10).padding(.bottom, 10)
         }
+        .scrollContentBackground(.hidden)
+        // Personality v1's sidebar: surface at 72% over the page's bg, under the title bar too.
+        .background(Cx.surface.opacity(0.72).background(Cx.bg).ignoresSafeArea())
     }
 
-    /// The sidebar's rows for the mode. Movies and TV Shows only once a
-    /// library of that kind exists (or before the server has been asked), so a
-    /// row never leads to a screen that cannot have anything on it.
-    private var visibleSections: [MacSection] {
-        MacSection.sidebar(for: state.browseMode).filter {
-            switch $0 {
-            case .movies: !libraries.isLoaded || !libraries.movieLibraries.isEmpty
-            case .shows: !libraries.isLoaded || !libraries.showLibraries.isEmpty
-            // Opted in and allowed Live TV; otherwise the row only leads to
-            // a 403 or a prompt nobody asked for. Settings turns it on.
-            case .radio: state.showsRadio && !state.isOffline
-            default: true
-            }
+    private func go(_ item: MacSection) {
+        if let mode = BrowseModeLogic.sectionMode(item.rawValue), mode.rawValue != state.browseMode.rawValue {
+            state.browseMode = AppState.BrowseMode(rawValue: mode.rawValue) ?? state.browseMode
+        }
+        section = item
+        query = ""
+    }
+
+    /// Movies and TV Shows only once a library of that kind exists (or before the
+    /// server has been asked), so a row never leads to a screen that cannot have
+    /// anything on it. A server with only video hides the music side.
+    private func isVisible(_ item: MacSection) -> Bool {
+        switch item {
+        case .movies: !libraries.isLoaded || !libraries.movieLibraries.isEmpty
+        case .shows: !libraries.isLoaded || !libraries.showLibraries.isEmpty
+        // Opted in and allowed Live TV; otherwise the row only leads to
+        // a 403 or a prompt nobody asked for. Settings turns it on.
+        case .radio: state.showsRadio && !state.isOffline
+        default: true
         }
     }
 
@@ -256,9 +259,12 @@ enum MacSection: String, Hashable, Identifiable, CaseIterable {
 
     var id: Self { self }
 
-    static func sidebar(for mode: AppState.BrowseMode) -> [MacSection] {
-        mode == .video ? [.home, .movies, .shows] : [.home, .albums, .artists, .songs, .playlists, .genres, .history, .radio]
-    }
+    /// The sidebar's groups under Home, as Flutter's desktop and the Penpot Mac sidebar.
+    static let groups: [(title: String, sections: [MacSection])] = [
+        ("Library", [.albums, .artists, .songs, .playlists, .genres]),
+        ("Listening", [.history, .radio]),
+        ("Video", [.movies, .shows]),
+    ]
 
     /// Under the list, in both modes.
     static let pinned: [MacSection] = [.downloads, .settings]
@@ -280,20 +286,21 @@ enum MacSection: String, Hashable, Identifiable, CaseIterable {
         }
     }
 
+    /// Outline symbols, the Penpot Mac sidebar's icon set.
     var symbol: String {
         switch self {
         case .home: "house"
-        case .albums: "square.stack"
-        case .artists: "music.mic"
-        case .songs: "music.note.list"
-        case .playlists: "music.note.square.stack"
-        case .genres: "guitars"
+        case .albums: "record.circle"
+        case .artists: "person"
+        case .songs: "music.note"
+        case .playlists: "list.bullet"
+        case .genres: "tag"
         case .history: "clock"
         case .radio: "dot.radiowaves.left.and.right"
-        case .downloads: "arrow.down.circle"
+        case .downloads: "arrow.down.to.line"
         case .movies: "film"
         case .shows: "tv"
-        case .settings: "gear"
+        case .settings: "slider.horizontal.3"
         }
     }
 
@@ -315,9 +322,67 @@ enum MacSection: String, Hashable, Identifiable, CaseIterable {
     }
 }
 
-private struct HomeOrVideoHome: View {
-    @Environment(AppState.self) private var state
+/// One Home for both modes on the Mac: it has Continue watching, as the Penpot Mac Home does.
+private typealias HomeOrVideoHome = MacHomeView
+
+/// The Cascade logo as the Home row, labeled Your Cascade (Flutter's _HomeBrand).
+private struct SidebarBrand: View {
+    let active: Bool
+    let action: () -> Void
+    @State private var hovering = false
+
     var body: some View {
-        if state.browseMode == .video { VideoHomeView() } else { HomeView() }
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Group {
+                    if let image = PlatformImage(named: "512x512") { Image(nsImage: image).resizable() }
+                }
+                .frame(width: 30, height: 30)
+                .overlay {
+                    Image(systemName: "house.fill").font(.system(size: 14)).foregroundStyle(.white)
+                        .frame(width: 30, height: 30)
+                        .background(.black.opacity(0.7), in: RoundedRectangle(cornerRadius: 7))
+                        .opacity(hovering ? 1 : 0)
+                }
+                Text("Your Cascade").font(.display(17, .semibold, italic: true)).foregroundStyle(Cx.text).lineLimit(1)
+                Spacer(minLength: 0)
+            }
+            .padding(8)
+            .background(active ? Cx.accentTint : hovering ? Cx.line : .clear, in: RoundedRectangle(cornerRadius: 9))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .animation(.easeOut(duration: 0.12), value: hovering)
+        .accessibilityLabel("Home")
+        .accessibilityAddTraits(active ? .isSelected : [])
+    }
+}
+
+/// One sidebar row: icon and name, the accent tint when it is the open section.
+private struct SidebarRow: View {
+    let item: MacSection
+    let active: Bool
+    let action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Image(systemName: item.symbol)
+                    .font(.system(size: 14))
+                    .frame(width: 16)
+                    .foregroundStyle(active ? Cx.accent : hovering ? Cx.text : Cx.text2)
+                Text(item.title).cx(.row).foregroundStyle(Cx.text).lineLimit(1)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 10).padding(.vertical, 7)
+            .background(active ? Cx.accentTint : hovering ? Cx.line : .clear, in: RoundedRectangle(cornerRadius: 7))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .animation(.easeOut(duration: 0.12), value: hovering)
+        .accessibilityAddTraits(active ? .isSelected : [])
     }
 }

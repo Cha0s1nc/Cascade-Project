@@ -10,6 +10,7 @@ struct PlayerBar: View {
     @Environment(\.openWindow) private var openWindow
     @State private var playedOverride: Bool?
     @State private var addingToPlaylist = false
+    @Environment(\.uiScale) private var zoom
     private var ui: MacNowPlayingUI { .shared }
 
     var body: some View {
@@ -18,8 +19,8 @@ struct PlayerBar: View {
             // The artist is a link of its own, so the button stops short of it.
             HStack(spacing: 10) {
                 Button(action: openNowPlaying) {
-                    ArtworkView(itemId: player.item?.albumId ?? player.item?.id, size: 44, animated: true)
-                        .overlay { CoverSliceOverlay(player: player, size: 44, showsSeam: false).clipShape(ProportionalRoundedRectangle()) }
+                    ArtworkView(itemId: player.item?.albumId ?? player.item?.id, size: 48, animated: true)
+                        .overlay { CoverSliceOverlay(player: player, size: 48, showsSeam: false).clipShape(ProportionalRoundedRectangle()) }
                         .overlay { LoadingCoverOverlay(active: player.isWaitingToPlay).clipShape(ProportionalRoundedRectangle()) }
                 }
                 .buttonStyle(.plain)
@@ -34,12 +35,13 @@ struct PlayerBar: View {
                 }
                 VStack(alignment: .leading, spacing: 2) {
                     Button(action: openNowPlaying) {
-                        Text(player.item?.name ?? "Not playing").lineLimit(1).explicitMark(player.item?.id ?? "")
+                        Text(player.item?.name ?? "Not playing").cx(.strong).foregroundStyle(Cx.text)
+                            .lineLimit(1).explicitMark(player.item?.id ?? "")
                     }
                     .buttonStyle(.plain)
                     ArtistLink(name: player.item?.albumArtist ?? player.item?.artists?.first ?? "",
                                id: (player.item?.albumArtists?.first ?? player.item?.artistItems?.first)?.id)
-                        .scaledFont(.caption).foregroundStyle(.secondary).lineLimit(1)
+                        .cx(.small).foregroundStyle(Cx.text2).lineLimit(1)
                 }
                 Spacer(minLength: 0)
                 if player.item != nil {
@@ -48,7 +50,7 @@ struct PlayerBar: View {
                         Image(systemName: liked ? "heart.fill" : "heart")
                     }
                     .buttonStyle(.hover)
-                    .foregroundStyle(liked ? MacTheme.favorite : .secondary)
+                    .foregroundStyle(liked ? MacTheme.favorite : Cx.text2)
                     .help(liked ? "Unfavorite" : "Favorite")
                     .accessibilityLabel(liked ? "Unfavorite" : "Favorite")
                 }
@@ -61,15 +63,20 @@ struct PlayerBar: View {
                 HStack(spacing: 18) {
                     // On shows as color and a dot, as in Apple Music: color alone is easy to miss.
                     Button { player.toggleShuffle() } label: { Image(systemName: "shuffle").overlay(alignment: .bottom) { OnDot(isOn: player.shuffle) } }
-                        .foregroundStyle(player.shuffle ? MacTheme.shared.accent : .secondary)
+                        .foregroundStyle(player.shuffle ? MacTheme.shared.accent : Cx.text2)
                         .help("Shuffle")
                         .accessibilityLabel("Shuffle")
                         .accessibilityValue(player.shuffle ? "On" : "Off")
                     Button { Task { await player.previous() } } label: { Image(systemName: "backward.fill") }
                         .help("Previous")
                         .accessibilityLabel("Previous")
+                    // Personality v1's solid accent button with dark ink.
                     Button { player.togglePlayPause() } label: {
-                        Image(systemName: player.isPaused ? "play.fill" : "pause.fill").scaledFont(.title2)
+                        Image(systemName: player.isPaused ? "play.fill" : "pause.fill")
+                            .font(.system(size: 15 * zoom, weight: .bold))
+                            .foregroundStyle(Cx.ink)
+                            .frame(width: 38 * zoom, height: 38 * zoom)
+                            .background(Cx.accent, in: Circle())
                     }
                     .buttonStyle(.plain)
                     .help(player.isPaused ? "Play" : "Pause")
@@ -81,12 +88,13 @@ struct PlayerBar: View {
                         Image(systemName: player.repeatMode == .one ? "repeat.1" : "repeat")
                             .overlay(alignment: .bottom) { OnDot(isOn: player.repeatMode != .none) }
                     }
-                    .foregroundStyle(player.repeatMode == .none ? .secondary : MacTheme.shared.accent)
+                    .foregroundStyle(player.repeatMode == .none ? Cx.text2 : MacTheme.shared.accent)
                     .help("Repeat")
                     .accessibilityLabel("Repeat")
                     .accessibilityValue(player.repeatMode == .one ? "One" : player.repeatMode == .all ? "All" : "Off")
                 }
                 .buttonStyle(.hover)
+                .foregroundStyle(Cx.text2)
                 if player.isRadio { LiveBadge().frame(height: 18) } else { Scrubber(player: player) }
             }
             .frame(minWidth: 300, maxWidth: 560)
@@ -97,12 +105,12 @@ struct PlayerBar: View {
                     Image(systemName: ui.sidePanelOpen ? "quote.bubble.fill" : "quote.bubble")
                 }
                 .buttonStyle(.hover)
-                .foregroundStyle(ui.sidePanelOpen ? MacTheme.shared.accent : .secondary)
+                .foregroundStyle(ui.sidePanelOpen ? MacTheme.shared.accent : Cx.text2)
                 .help("Lyrics")
                 .accessibilityLabel("Lyrics")
                 Button { openWindow(id: "miniplayer") } label: { Image(systemName: "pip") }
                     .buttonStyle(.hover)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Cx.text2)
                     .help("Miniplayer")
                     .accessibilityLabel("Open the miniplayer")
                 HStack(spacing: 6) {
@@ -112,20 +120,21 @@ struct PlayerBar: View {
                     .buttonStyle(.hover)
                     .help(player.isMuted ? "Unmute" : "Mute")
                     .accessibilityLabel(player.isMuted ? "Unmute" : "Mute")
-                    MacSlider(value: Double(player.isMuted ? 0 : player.volume), fill: .secondary, label: "Volume") {
+                    MacSlider(value: Double(player.isMuted ? 0 : player.volume), fill: Cx.text2, track: Cx.track, label: "Volume") {
                         // Moving the slider is a wish to hear it.
                         if player.isMuted { player.setMuted(false) }
                         player.setVolume(Float($0))
                     }
-                    .frame(width: 110)
+                    .frame(width: 130)
                 }
             }
             .frame(minWidth: 200, maxWidth: .infinity, alignment: .trailing)
-            .foregroundStyle(.secondary)
+            .foregroundStyle(Cx.text2)
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 8)
-        .background(.bar)
+        .padding(.vertical, 14)
+        .background(Cx.surface)
+        .overlay(alignment: .top) { Cx.line.frame(height: 1) }
         // The whole bar, but a control's own click wins over this one, so only what is not a
         // control opens Now Playing.
         .contentShape(Rectangle())
@@ -149,21 +158,22 @@ struct Scrubber: View {
     @State private var dragging: Double?
 
     var body: some View {
-        HStack(spacing: 8) {
-            Text(clock(dragging ?? player.positionSeconds)).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
-            Slider(value: Binding(get: { dragging ?? player.positionSeconds }, set: { dragging = $0 }),
-                   in: 0...max(player.durationSeconds, 1)) { editing in
-                if !editing, let target = dragging {
-                    Task {
-                        await player.seek(to: target)
-                        dragging = nil
-                    }
-                }
-            }
-            .controlSize(.small)
-            .accessibilityLabel("Position")
-            .accessibilityValue("\(clock(dragging ?? player.positionSeconds)) of \(clock(player.durationSeconds))")
-            Text(clock(player.durationSeconds)).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+        let duration = max(player.durationSeconds, 1)
+        let position = dragging ?? player.positionSeconds
+        HStack(spacing: 12) {
+            Text(clock(position)).cx(.small).monospacedDigit().foregroundStyle(Cx.text3)
+            // Personality v1's 4 pt bar: the accent over the track color.
+            MacSlider(value: position / duration, step: 5 / duration, bigStep: 30 / duration,
+                      track: Cx.track, label: "Position",
+                      valueText: { "\(clock($0 * duration)) of \(clock(duration))" },
+                      onChange: { dragging = $0 * duration },
+                      onCommit: { target in
+                          Task {
+                              await player.seek(to: target * duration)
+                              dragging = nil
+                          }
+                      })
+            Text(clock(player.durationSeconds)).cx(.small).monospacedDigit().foregroundStyle(Cx.text3)
         }
     }
 }
