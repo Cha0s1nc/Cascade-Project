@@ -30,14 +30,17 @@ struct GenresView: View {
     @ViewBuilder private var content: some View {
         #if os(macOS)
         ScrollView {
-            LoadingOverlay(isLoading: isLoading, error: error, isEmpty: items.isEmpty, skeleton: .grid)
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 160), spacing: 14)], spacing: 14) {
-                ForEach(items) { genre in
-                    NavigationLink(value: genre) { GenreTile(name: genre.name ?? "Unknown") }
-                        .buttonStyle(.plain)
+            VStack(alignment: .leading, spacing: 0) {
+                CxPageHeader(title: "Genres", voice: isLoading || items.isEmpty ? nil : cxCount(items.count, "genre")) {} below: {}
+                LoadingOverlay(isLoading: isLoading, error: error, isEmpty: items.isEmpty, skeleton: .grid)
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 180), spacing: 14)], spacing: 14) {
+                    ForEach(items) { genre in
+                        NavigationLink(value: genre) { GenreTile(name: genre.name ?? "Unknown") }
+                            .buttonStyle(.plain)
+                    }
                 }
             }
-            .padding()
+            .cxPage()
         }
         #else
         List {
@@ -66,7 +69,7 @@ private struct GenreTile: View {
                                     Color(hue: Double((seed + 40) % 360) / 360, saturation: 0.6, brightness: 0.45)],
                            startPoint: .topLeading, endPoint: .bottomTrailing)
             Text(name)
-                .scaledFont(.headline)
+                .cx(.strong)
                 .foregroundStyle(.white)
                 .shadow(radius: 2)
                 .lineLimit(2)
@@ -95,6 +98,7 @@ struct GenreDetailView: View {
     @State private var isLoading = true
     @State private var error: String?
     @State private var isStarting = false
+    @Environment(\.uiScale) private var uiScale
 
     var body: some View {
         ScrollView {
@@ -114,6 +118,9 @@ struct GenreDetailView: View {
             .browseHeader()
             LoadingOverlay(isLoading: isLoading, error: error, isEmpty: albums.isEmpty, skeleton: .grid)
             ItemTiles(items: albums)
+                #if os(macOS)
+                .padding(.horizontal, 36 * uiScale)
+                #endif
             if !songs.isEmpty { songsSection }
         }
         .navigationTitle(genre.name ?? "Genre")

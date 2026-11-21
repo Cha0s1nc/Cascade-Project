@@ -30,17 +30,23 @@ struct ArtistsView: View {
             .padding(.horizontal)
             .browseHeader()
             #endif
-            LoadingOverlay(isLoading: isLoading, error: error, isEmpty: items.isEmpty, skeleton: .grid,
-                           emptyTitle: "No artists", emptyMessage: "Nothing matches, or the chosen libraries are empty.",
-                           retry: { state.dropBrowseCache(.artists); refreshes += 1 })
+            #if os(macOS)
+            VStack(alignment: .leading, spacing: 0) {
+                CxPageHeader(title: "Artists", voice: voice) {
+                    sortMenu(chip: true)
+                } below: {
+                    FilterChips(filter: $prefs.filter, itemType: "MusicArtist", favoritesOnly: true)
+                }
+                overlay
+                ItemTiles(items: items)
+            }
+            .cxPage()
+            #else
+            overlay
             ItemTiles(items: items)
+            #endif
         }
         .navigationTitle("Artists")
-        #if os(macOS)
-        .toolbar {
-            ToolbarItemGroup { controls }
-        }
-        #endif
         // Keyed on the library selection and the sort, so changing either reloads.
         .refreshable { state.dropBrowseCache(.artists); refreshes += 1 }
         .task(id: browseKey) {
@@ -58,9 +64,26 @@ struct ArtistsView: View {
         }
     }
 
-    @ViewBuilder private var controls: some View {
+    private var overlay: some View {
+        LoadingOverlay(isLoading: isLoading, error: error, isEmpty: items.isEmpty, skeleton: .grid,
+                       emptyTitle: "No artists", emptyMessage: "Nothing matches, or the chosen libraries are empty.",
+                       retry: { state.dropBrowseCache(.artists); refreshes += 1 })
+    }
+
+    private func sortMenu(chip: Bool = false) -> some View {
         SortMenu(fields: [(ArtistSortField.name, "Name"), (.added, "Date Added")],
-                 field: $prefs.sort(.name) { $0.defaultDirection }, direction: $prefs.direction)
+                 field: $prefs.sort(.name) { $0.defaultDirection }, direction: $prefs.direction, chip: chip)
+    }
+
+    #if os(macOS)
+    private var voice: String? {
+        guard let list, list.isComplete, list.isWholeList, !items.isEmpty else { return nil }
+        return cxCount(items.count, "artist")
+    }
+    #endif
+
+    @ViewBuilder private var controls: some View {
+        sortMenu()
         // Favorites only: the desktop offers an artist no genre (Jellyfin
         // filters artists by their own genre metadata, which is mostly empty),
         // no year, and "played" means nothing for one.

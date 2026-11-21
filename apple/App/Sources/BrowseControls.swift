@@ -18,6 +18,8 @@ struct SortMenu<Field: Hashable>: View {
     @Binding var field: Field
     @Binding var direction: SortDirection
     var favoritesOnly: Binding<Bool>?
+    /// The Mac's Personality v1 pages: a chip in the page's header, not a toolbar button.
+    var chip = false
     #if os(tvOS)
     @State private var isChoosing = false
     #endif
@@ -42,26 +44,34 @@ struct SortMenu<Field: Hashable>: View {
                 }
             }
         }
-        #else
-        Menu {
-            // One field (Artists) needs no picker, only the direction.
-            if fields.count > 1 {
-                Picker("Sort By", selection: $field) {
-                    ForEach(fields, id: \.0) { Text($0.1).tag($0.0) }
-                }
-            }
-            Picker("Order", selection: $direction) {
-                Text("Ascending").tag(SortDirection.ascending)
-                Text("Descending").tag(SortDirection.descending)
-            }
-            if let favoritesOnly {
-                Toggle("Favorites Only", isOn: favoritesOnly)
-            }
-        } label: {
-            Label(summary, systemImage: "arrow.up.arrow.down")
+        #elseif os(macOS)
+        if chip {
+            CxMenuChip(title: summary, symbol: "arrow.up.arrow.down") { menuContent }
+        } else {
+            Menu { menuContent } label: { Label(summary, systemImage: "arrow.up.arrow.down") }
         }
+        #else
+        Menu { menuContent } label: { Label(summary, systemImage: "arrow.up.arrow.down") }
         #endif
     }
+
+    #if !os(tvOS)
+    @ViewBuilder private var menuContent: some View {
+        // One field (Artists) needs no picker, only the direction.
+        if fields.count > 1 {
+            Picker("Sort By", selection: $field) {
+                ForEach(fields, id: \.0) { Text($0.1).tag($0.0) }
+            }
+        }
+        Picker("Order", selection: $direction) {
+            Text("Ascending").tag(SortDirection.ascending)
+            Text("Descending").tag(SortDirection.descending)
+        }
+        if let favoritesOnly {
+            Toggle("Favorites Only", isOn: favoritesOnly)
+        }
+    }
+    #endif
 
     private var summary: String {
         let name = fields.first { $0.0 == field }?.1 ?? "Sort"
@@ -99,18 +109,28 @@ struct FilterMenu: View {
     var body: some View {
         menu
             .task(id: ListsKey(music: state.config?.libraryIds ?? [], video: libraryIds)) {
-                guard let client = state.client else { return }
-                let isVideo = itemType == "Movie" || itemType == "Series"
-                if showsGenre {
-                    genres = (isVideo ? try? await client.genreNames(types: itemType, libraryIds: libraryIds)
-                                      : try? await client.genres().compactMap(\.name)) ?? []
-                }
-                if showsDecade {
-                    let years = isVideo ? try? await client.years(of: itemType, libraryIds: libraryIds)
-                                        : try? await client.years(of: itemType)
-                    decades = BrowseFilter.decades(years ?? [])
-                }
+                (genres, decades) = await Self.choices(state: state, itemType: itemType, libraryIds: libraryIds,
+                                                       genre: showsGenre, decade: showsDecade)
             }
+    }
+
+    /// The genres and decades in the selected libraries, for a filter's lists (the Mac's
+    /// filter chips read them here too).
+    static func choices(state: AppState, itemType: String, libraryIds: [String] = [],
+                        genre: Bool = true, decade: Bool = true) async -> ([String], [Int]) {
+        guard let client = state.client else { return ([], []) }
+        let isVideo = itemType == "Movie" || itemType == "Series"
+        var genres: [String] = [], decades: [Int] = []
+        if genre {
+            genres = (isVideo ? try? await client.genreNames(types: itemType, libraryIds: libraryIds)
+                              : try? await client.genres().compactMap(\.name)) ?? []
+        }
+        if decade {
+            let years = isVideo ? try? await client.years(of: itemType, libraryIds: libraryIds)
+                                : try? await client.years(of: itemType)
+            decades = BrowseFilter.decades(years ?? [])
+        }
+        return (genres, decades)
     }
 
     private var label: some View {

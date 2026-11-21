@@ -294,13 +294,7 @@ private struct ItemContextMenu: ViewModifier {
     private func withTracks(_ action: @escaping @MainActor ([JfItem]) async -> Void) {
         guard let client = state.client else { return }
         Task {
-            let tracks: [JfItem]
-            switch item.type {
-            case "MusicAlbum": tracks = (try? await client.tracks(inAlbum: item.id)) ?? []
-            case "MusicArtist": tracks = (try? await client.tracks(byArtist: item.id)) ?? []
-            case "Playlist": tracks = (try? await client.tracks(inPlaylist: item.id)) ?? []
-            default: tracks = []
-            }
+            let tracks = await tracksOf(item, client: client)
             guard !tracks.isEmpty else { return }
             await action(tracks)
         }
@@ -393,5 +387,18 @@ struct ArtistLink: View {
             if state.nowPlayingOpen { withAnimation(.easeInOut(duration: 0.38)) { state.nowPlayingOpen = false } }
             if let show { show(artist) } else { push?(artist) }
         }
+    }
+}
+
+/// An album's, artist's or playlist's songs, fetched when something asks to play them:
+/// a list's item does not carry its tracks. Empty for anything else, or on failure.
+@MainActor
+func tracksOf(_ item: JfItem, client: JellyfinClient?) async -> [JfItem] {
+    guard let client else { return [] }
+    switch item.type {
+    case "MusicAlbum": return (try? await client.tracks(inAlbum: item.id)) ?? []
+    case "MusicArtist": return (try? await client.tracks(byArtist: item.id)) ?? []
+    case "Playlist": return (try? await client.tracks(inPlaylist: item.id)) ?? []
+    default: return []
     }
 }

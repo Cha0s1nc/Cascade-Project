@@ -16,6 +16,27 @@ struct SmartPlaylistShelf: View {
     private var side: CGFloat { 150 * uiScale }
 
     var body: some View {
+        #if os(macOS)
+        // Personality v1: a section of the page, its tiles the size of the grid's.
+        VStack(alignment: .leading, spacing: 0) {
+            CxSectionTitle(title: "Smart playlists", top: 0)
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 160 * uiScale), spacing: 22 * uiScale, alignment: .top)],
+                      alignment: .leading, spacing: 18 * uiScale) {
+                ForEach(builtIns, id: \.kind) { entry in
+                    NavigationLink(value: AppRoute.smartPlaylist(entry.kind)) {
+                        macTile(entry.name, "Updates itself", entry.symbol, entry.colors)
+                    }
+                    .buttonStyle(.plain)
+                }
+                ForEach(state.smartPlaylists) { playlist in
+                    NavigationLink(value: AppRoute.smartPlaylist(playlist.id)) {
+                        macTile(playlist.name, "Smart playlist", "line.3.horizontal.decrease", [.purple, .indigo])
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+        #else
         VStack(alignment: .leading, spacing: 8) {
             Text("Smart Playlists").scaledFont(.headline).padding(.horizontal)
             ScrollView(.horizontal, showsIndicators: false) {
@@ -37,7 +58,22 @@ struct SmartPlaylistShelf: View {
             }
         }
         .padding(.bottom, 8)
+        #endif
     }
+
+    #if os(macOS)
+    private func macTile(_ name: String, _ subtitle: String, _ symbol: String, _ colors: [Color]) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ProportionalRoundedRectangle()
+                .fill(LinearGradient(colors: colors, startPoint: .topLeading, endPoint: .bottomTrailing))
+                .aspectRatio(1, contentMode: .fit)
+                .overlay { Image(systemName: symbol).font(.system(size: 34 * uiScale, weight: .semibold)).foregroundStyle(.white) }
+            Text(name).cx(.row).foregroundStyle(Cx.text).lineLimit(1).padding(.top, 10)
+            Text(subtitle).cx(.small).foregroundStyle(Cx.text3).lineLimit(1).padding(.top, 3)
+        }
+        .contentShape(Rectangle())
+    }
+    #endif
 
     private func tile(_ name: String, _ subtitle: String, _ symbol: String, _ colors: [Color]) -> some View {
         VStack(alignment: .leading, spacing: 6) {

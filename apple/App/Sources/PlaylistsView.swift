@@ -24,13 +24,37 @@ struct PlaylistsView: View {
     /// Bumped after a create so the list reloads with the new playlist.
     @State private var generation = 0
 
+    private func sortMenu(chip: Bool = false) -> some View {
+        SortMenu(fields: [(PlaylistPrefsField.name, "Name"), (.added, "Date Added"), (.count, "Song Count")],
+                 field: Binding(get: { sortField }, set: { prefs.field = $0.rawValue }),
+                 direction: Binding(get: { prefs.direction }, set: { prefs.direction = $0 }),
+                 favoritesOnly: Binding(get: { prefs.filter.favoritesOnly }, set: { prefs.filter.favoritesOnly = $0 }),
+                 chip: chip)
+    }
+
     var body: some View {
         ScrollView {
+            #if os(macOS)
+            VStack(alignment: .leading, spacing: 0) {
+                CxPageHeader(title: "Playlists",
+                             voice: isLoading ? nil : items.isEmpty ? "Make one from any song\u{2019}s menu." : cxCount(items.count, "playlist")) {
+                    sortMenu(chip: true)
+                    CxIconButton(symbol: "arrow.clockwise", help: "Refresh") { state.playlistMutated(); generation += 1 }
+                    PillButton("New Playlist", symbol: "plus") { creating = true }
+                } below: {
+                    EmptyView()
+                }
+                SmartPlaylistShelf()
+                LoadingOverlay(isLoading: isLoading, error: error, isEmpty: items.isEmpty, skeleton: .grid,
+                               emptyTitle: "No playlists yet", emptyMessage: "Add a song to a new playlist from its menu.",
+                               retry: { state.playlistMutated(); generation += 1 })
+                if !items.isEmpty { CxSectionTitle(title: "Your playlists") }
+                ItemTiles(items: items)
+            }
+            .cxPage()
+            #else
             HStack {
-                SortMenu(fields: [(PlaylistPrefsField.name, "Name"), (.added, "Date Added"), (.count, "Song Count")],
-                         field: Binding(get: { sortField }, set: { prefs.field = $0.rawValue }),
-                         direction: Binding(get: { prefs.direction }, set: { prefs.direction = $0 }),
-                         favoritesOnly: Binding(get: { prefs.filter.favoritesOnly }, set: { prefs.filter.favoritesOnly = $0 }))
+                sortMenu()
                 Spacer()
                 // One button for both kinds, as on the desktop: the sheet asks
                 // Normal or Smart. The smart shelf's own New tile is gone.
@@ -39,11 +63,6 @@ struct PlaylistsView: View {
                 } label: {
                     Label("New Playlist", systemImage: "plus")
                 }
-                #if os(macOS)
-                Button { state.playlistMutated(); generation += 1 } label: {
-                    Label("Refresh", systemImage: "arrow.clockwise")
-                }
-                #endif
             }
             .padding(.horizontal)
             .browseHeader()
@@ -60,6 +79,7 @@ struct PlaylistsView: View {
                     .padding(.bottom, -12)
             }
             ItemTiles(items: items)
+            #endif
         }
         .navigationTitle("Playlists")
         .onChange(of: prefs.field) { prefs.direction = sortField.defaultDirection }

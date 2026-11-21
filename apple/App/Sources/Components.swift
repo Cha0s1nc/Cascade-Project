@@ -297,6 +297,17 @@ struct ItemTiles: View {
     #endif
 
     var body: some View {
+        #if os(macOS)
+        // Personality v1: Flutter's CardGrid, columns of at least 160 with 22 between.
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 160 * uiScale), spacing: 22 * uiScale, alignment: .top)],
+                  alignment: .leading, spacing: 18 * uiScale) {
+            ForEach(items) { item in
+                NavigationLink(value: item) { MacTile(item: item, subtitle: macSubtitle(item)) }
+                    .buttonStyle(.plain)
+                    .itemContextMenu(item)
+            }
+        }
+        #else
         LazyVGrid(columns: [GridItem(.adaptive(minimum: tile * uiScale), spacing: 16)], spacing: 20) {
             ForEach(items) { item in
                 NavigationLink(value: item) {
@@ -325,7 +336,20 @@ struct ItemTiles: View {
             }
         }
         .padding()
+        #endif
     }
+
+    #if os(macOS)
+    /// An album's artist and year, a playlist's song count, "Artist" under an artist.
+    private func macSubtitle(_ item: JfItem) -> String? {
+        switch item.type {
+        case "MusicArtist": return "Artist"
+        case "Playlist": return subtitle(item)
+        default:
+            return [item.albumArtist, item.productionYear.map(String.init)].compactMap { $0 }.joined(separator: " \u{00B7} ")
+        }
+    }
+    #endif
 
     private func subtitle(_ item: JfItem) -> String? {
         if let artist = item.albumArtist { return artist }

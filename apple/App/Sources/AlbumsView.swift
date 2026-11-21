@@ -36,18 +36,25 @@ struct AlbumsView: View {
             .padding(.horizontal)
             .browseHeader()
             #endif
-            LoadingOverlay(isLoading: isLoading, error: error, isEmpty: items.isEmpty, skeleton: .grid,
-                           emptyTitle: "No albums", emptyMessage: "Nothing matches, or the chosen libraries are empty.",
-                           retry: { state.dropBrowseCache(.albums); refreshes += 1 })
+            #if os(macOS)
+            VStack(alignment: .leading, spacing: 0) {
+                CxPageHeader(title: "Albums", voice: voice) {
+                    sortMenu(chip: true)
+                    PillButton("Shuffle", symbol: "shuffle") { Task { await shuffleAlbums() } }
+                        .disabled(items.isEmpty)
+                } below: {
+                    FilterChips(filter: $prefs.filter, itemType: "MusicAlbum")
+                }
+                overlay
+                ItemTiles(items: items)
+            }
+            .cxPage()
+            #else
+            overlay
             ItemTiles(items: items)
+            #endif
         }
         .navigationTitle("Albums")
-        #if os(macOS)
-        // In the window toolbar, where a Mac app keeps them.
-        .toolbar {
-            ToolbarItemGroup { controls }
-        }
-        #endif
         // Keyed on the library selection and the sort, so changing either
         // reloads from the server rather than re-sorting a partial list.
         .refreshable { state.dropBrowseCache(.albums); refreshes += 1 }
@@ -73,15 +80,37 @@ struct AlbumsView: View {
         }
     }
 
-    @ViewBuilder private var controls: some View {
+    private var overlay: some View {
+        LoadingOverlay(isLoading: isLoading, error: error, isEmpty: items.isEmpty, skeleton: .grid,
+                       emptyTitle: "No albums", emptyMessage: "Nothing matches, or the chosen libraries are empty.",
+                       retry: { state.dropBrowseCache(.albums); refreshes += 1 })
+    }
+
+    private func sortMenu(chip: Bool = false) -> some View {
         SortMenu(fields: [(AlbumSortField.name, "Name"), (.artist, "Artist"), (.year, "Year"),
                           (.added, "Date Added"), (.played, "Recently Played")],
-                 field: $prefs.sort(.name) { $0.defaultDirection }, direction: $prefs.direction)
-        FilterMenu(filter: $prefs.filter, itemType: "MusicAlbum")
-        #if os(macOS)
-        NavigationLink(value: AppRoute.genres) {
-            Label("Genres", systemImage: "guitars")
-        }
-        #endif
+                 field: $prefs.sort(.name) { $0.defaultDirection }, direction: $prefs.direction, chip: chip)
     }
+
+    @ViewBuilder private var controls: some View {
+        sortMenu()
+        FilterMenu(filter: $prefs.filter, itemType: "MusicAlbum")
+    }
+
+    #if os(macOS)
+    /// "1,204 albums, 310 you haven't played yet", once the whole list is in: a count of
+    /// the pages so far would be wrong.
+    private var voice: String? {
+        guard let list, list.isComplete, list.isWholeList, !items.isEmpty else { return nil }
+        let unplayed = items.count { $0.userData?.played != true }
+        return cxCount(items.count, "album") + (unplayed > 0 && unplayed < items.count ? ", \(unplayed.formatted()) you haven\u{2019}t played yet" : "")
+    }
+
+    /// Flutter's Albums Shuffle: the songs of 20 albums picked at random from those shown.
+    private func shuffleAlbums() async {
+        var songs: [JfItem] = []
+        for album in items.shuffled().prefix(20) { songs += await tracksOf(album, client: state.client) }
+        await playShuffled(songs, on: state.player)
+    }
+    #endif
 }

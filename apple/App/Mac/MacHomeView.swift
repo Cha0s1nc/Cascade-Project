@@ -352,33 +352,3 @@ struct ArtStack: View {
         .animation(.easeInOut(duration: 0.3), value: song.id)
     }
 }
-
-/// Personality v1's pill buttons: the solid accent one with dark ink, the rest on surface-2.
-struct PillButton: View {
-    let title: String
-    let symbol: String
-    var primary = false
-    let action: () -> Void
-    @State private var hovering = false
-
-    init(_ title: String, symbol: String, primary: Bool = false, action: @escaping () -> Void) {
-        self.title = title
-        self.symbol = symbol
-        self.primary = primary
-        self.action = action
-    }
-
-    var body: some View {
-        Button(action: action) {
-            Label(title, systemImage: symbol)
-                .cx(.strong)
-                .foregroundStyle(primary ? Cx.ink : Cx.text)
-                .padding(.horizontal, 16).padding(.vertical, 9)
-                .background(primary ? Cx.accent : hovering ? Cx.hover : Cx.surface2, in: Capsule())
-                .brightness(primary && hovering ? 0.06 : 0)
-                .contentShape(Capsule())
-        }
-        .buttonStyle(.plain)
-        .onHover { hovering = $0 }
-    }
-}
