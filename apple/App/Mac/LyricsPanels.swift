@@ -13,6 +13,25 @@ final class MacNowPlayingUI {
 
     enum RightPanel { case queue, lyrics }
     var rightPanel = RightPanel.queue
+
+    /// Now Playing's layout, under Flutter's key so every app shows the same one: the
+    /// player bar stays (bar, the default, as the Penpot Mac board) or the controls move
+    /// under the art over the whole window (under). Flutter's Focus is not built here
+    /// yet; a stored "focus" reads as bar.
+    enum Layout: String { case bar, under }
+    static let layoutKey = "cascade.nowPlayingLayout"
+
+    /// Opens Now Playing on a panel, or closes it if that panel is already showing
+    /// (Flutter's np.show): the player bar's Lyrics and Queue buttons.
+    func show(_ panel: RightPanel, state: AppState) {
+        guard state.player?.item != nil else { return }
+        if state.nowPlayingOpen && rightPanel == panel {
+            withAnimation(.easeInOut(duration: 0.38)) { state.nowPlayingOpen = false }
+            return
+        }
+        withAnimation(.easeInOut(duration: 0.3)) { rightPanel = panel }
+        if !state.nowPlayingOpen { withAnimation(.easeInOut(duration: 0.38)) { state.nowPlayingOpen = true } }
+    }
     var sidePanelOpen = false
     /// The playing song's favorite as toggled here, until the next song: the player bar, the
     /// overlay and their menus share it, so a heart toggled in one is right in the others.

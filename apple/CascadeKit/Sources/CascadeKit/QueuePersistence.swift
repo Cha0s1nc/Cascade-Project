@@ -86,6 +86,13 @@ public struct RestoredQueue: Sendable {
     public var index: Int
     public var positionSec: Double
     public var unshuffled: [JfItem]
+
+    public init(queue: [JfItem], index: Int, positionSec: Double, unshuffled: [JfItem]) {
+        self.queue = queue
+        self.index = index
+        self.positionSec = positionSec
+        self.unshuffled = unshuffled
+    }
 }
 
 /// Rebuilds a stored queue from freshly fetched items (any order). If the

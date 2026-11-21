@@ -328,6 +328,8 @@ struct ArtStack: View {
     let song: JfItem
     let next: [JfItem]
     let size: CGFloat
+    /// False when the caller draws the front cover itself (Now Playing's, with its overlays).
+    var showsFront = true
     @AppStorage("cascade.showArtStack") private var showStack = true
     @Environment(\.uiScale) private var zoom
 
@@ -341,8 +343,10 @@ struct ArtStack: View {
                     .opacity(0.6 - Double(i) * 0.15)
                     .offset(x: size * (1 - scale) + peek * CGFloat(i + 1))
             }
-            ArtworkView(itemId: song.albumId ?? song.id, size: size / zoom)
-                .shadow(color: .black.opacity(0.45), radius: 16, y: 8)
+            if showsFront {
+                ArtworkView(itemId: song.albumId ?? song.id, size: size / zoom)
+                    .shadow(color: .black.opacity(0.45), radius: 16, y: 8)
+            }
         }
         .frame(width: size + peek * CGFloat(behind.count), height: size, alignment: .leading)
         .animation(.easeInOut(duration: 0.3), value: song.id)

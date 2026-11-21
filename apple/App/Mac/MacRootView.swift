@@ -17,6 +17,7 @@ struct MacRootView: View {
     @State private var pending: (section: MacSection, item: JfItem)?
     /// View > Zoom (MacZoom).
     @AppStorage(MacZoom.key) private var zoom = 1.0
+    @AppStorage(MacNowPlayingUI.layoutKey) private var npLayout = MacNowPlayingUI.Layout.bar
 
     private var libraries: VideoLibrarySelection { state.videoLibraries }
     private var isSearching: Bool { !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
@@ -114,6 +115,9 @@ struct MacRootView: View {
                     .transition(.move(edge: .trailing))
             }
             }
+            // Player bar stays: Now Playing covers the window body only, under the title bar
+            // and over the library, with the player bar left in place below it.
+            .overlay { if npLayout == .bar { NowPlayingOverlay(bar: true) } }
             .animation(.easeInOut(duration: 0.25), value: MacNowPlayingUI.shared.sidePanelOpen)
             if let player = state.player {
                 PlayerBar(player: player)
@@ -137,7 +141,8 @@ struct MacRootView: View {
         .overlay {
             // Full-window layers over the split view and the player bar: Now Playing, then a
             // video above everything.
-            NowPlayingOverlay()
+            // Controls under the art: Now Playing takes the whole window, player bar included.
+            if npLayout == .under { NowPlayingOverlay(bar: false) }
             MacVideoHost()
         }
         // A message from the server's admin, over all of it.

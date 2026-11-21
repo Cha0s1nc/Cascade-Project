@@ -5,6 +5,9 @@ import CascadeKit
 /// nothing at all (no timelines running, nothing to hit-test), but stays in the tree: its task
 /// loads the lyrics for both Now Playing and the side panel (MacRootView's inspector).
 struct NowPlayingOverlay: View {
+    /// The Player bar stays layout (in the window body, toolbar and player bar left alone)
+    /// rather than Controls under the art (the whole window).
+    var bar = false
     @Environment(AppState.self) private var state
     private var ui: MacNowPlayingUI { .shared }
     private var prefs: LyricsPrefs { .shared }
@@ -20,13 +23,15 @@ struct NowPlayingOverlay: View {
                 if state.nowPlayingOpen {
                     // trackActionHost: Media Info, Delete and multi-song Add to
                     // Playlist from the More menu present from here.
-                    OverlayContent(player: player)
+                    OverlayContent(player: player, bar: bar)
                         .trackActionHost()
                         .transition(.move(edge: .bottom))
                         .zIndex(2)
                 }
             }
         }
+        // In the window body, it slides up from behind the player bar rather than over it.
+        .clipped()
         .translationHost(ui.translator)
         #if DEBUG
         .task { await NowPlayingDebug.run(state) }
@@ -72,7 +77,9 @@ struct NowPlayingOverlay: View {
 private struct OverlayContent: View {
     @Environment(\.showLibraryItem) private var showLibraryItem
     let player: PlaybackService
+    let bar: Bool
     @Environment(AppState.self) private var state
+    @Environment(\.uiScale) private var zoom
     private var ui: MacNowPlayingUI { .shared }
     private var theme: MacTheme { .shared }
 
@@ -107,11 +114,15 @@ private struct OverlayContent: View {
     var body: some View {
         ZStack {
             background
-            VStack(spacing: 0) {
-                header
-                HStack(spacing: 0) {
-                    leftColumn
-                    rightPanel
+            if bar {
+                barLayout
+            } else {
+                VStack(spacing: 0) {
+                    header
+                    HStack(spacing: 0) {
+                        leftColumn
+                        rightPanel
+                    }
                 }
             }
             // Esc closes it, as the chevron does. A hidden button, so it works without focus.
@@ -120,9 +131,10 @@ private struct OverlayContent: View {
         .foregroundStyle(ink)
         .environment(\.lyricInk, ink)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        // The window's toolbar (Music/Video, search, theme) is the library's, not Now Playing's:
-        // hidden while this is open, as the video player does. The traffic lights stay.
-        .background(ToolbarHider())
+        // The window's toolbar (search, devices, theme) is the library's, not Now Playing's:
+        // hidden while the full-window layout is open, as the video player does. The
+        // traffic lights stay. Player bar stays keeps it, as the Penpot Mac board does.
+        .background { if !bar { ToolbarHider() } }
         .onContinuousHover { _ in poke() }
         .simultaneousGesture(TapGesture().onEnded { poke() })
         .task(id: wake) {
@@ -166,9 +178,79 @@ private struct OverlayContent: View {
         if artTheme {
             NowPlayingBackground(itemId: artId, behindLyrics: showingLyrics, light: light, multiply: theme.tuning.bgBlend)
         } else {
-            Rectangle().fill(Color(nsColor: .windowBackgroundColor)).ignoresSafeArea()
+            // Personality v1: bg with the accent-deep wash down from the top.
+            Cx.bg.overlay(alignment: .top) {
+                LinearGradient(colors: [Cx.accentDeep.opacity(0.55), .clear], startPoint: .top, endPoint: .bottom)
+                    .frame(height: 520 * zoom)
+            }
+            .ignoresSafeArea()
         }
     }
+
+    // MARK: Player bar stays
+
+    /// The Penpot "Mac / Now Playing" board, as Flutter's _split: the art stack, title,
+    /// artist and album, and the quality line on the left (5 parts), lyrics or the queue on
+    /// the right (7 parts). The transport stays in the player bar, whose Lyrics and Queue
+    /// buttons pick the panel; Esc, the chevron or the bar itself closes it.
+    private var barLayout: some View {
+        GeometryReader { geo in
+            let side = max(160, min(340 * zoom, geo.size.height * 0.42))
+            let inner = geo.size.width * 0.9 - 32
+            HStack(spacing: 32) {
+                VStack(alignment: .leading, spacing: 0) {
+                    Spacer(minLength: 0)
+                    ZStack(alignment: .leading) {
+                        ArtStack(song: player.item ?? JfItem(id: ""), next: upNext, size: side, showsFront: false)
+                        art(side: side)
+                    }
+                    Button(action: viewAlbum) {
+                        Text(player.item?.name ?? "Nothing playing").cx(.title).foregroundStyle(Cx.text)
+                            .lineLimit(2).multilineTextAlignment(.leading)
+                            .explicitMark(player.item?.id ?? "")
+                    }
+                    .buttonStyle(.plain)
+                    .help("View album")
+                    .padding(.top, 26)
+                    HStack(spacing: 0) {
+                        ArtistLink(name: player.item?.albumArtist ?? player.item?.artists?.first ?? "",
+                                   id: (player.item?.albumArtists?.first ?? player.item?.artistItems?.first)?.id)
+                            .lineLimit(1)
+                        if let album = player.item?.album {
+                            Text(" \u{00B7} ").foregroundStyle(Cx.text3)
+                            Button(album, action: viewAlbum).buttonStyle(.plain).lineLimit(1)
+                        }
+                    }
+                    .font(.cxBody(14 * zoom))
+                    .foregroundStyle(Cx.text2)
+                    .padding(.top, 6)
+                    QualityLine(player: player).padding(.top, 14)
+                    if let error = player.error { Text(error).cx(.small).foregroundStyle(.red).padding(.top, 10) }
+                    Spacer(minLength: 0)
+                }
+                .frame(width: inner * 5 / 12, alignment: .leading)
+                rightPanel
+                    .frame(width: inner * 7 / 12)
+            }
+            .padding(.leading, geo.size.width * 0.06)
+            .padding(.trailing, geo.size.width * 0.04)
+            .padding(.top, 12)
+        }
+        .overlay(alignment: .topTrailing) {
+            Button(action: close) {
+                Image(systemName: "chevron.down").font(.system(size: 13 * zoom, weight: .semibold))
+                    .foregroundStyle(Cx.text2)
+                    .frame(width: 30, height: 30)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.hover)
+            .help("Close Now Playing (Esc)")
+            .accessibilityLabel("Close Now Playing")
+            .padding(.top, 12).padding(.trailing, 16)
+        }
+    }
+
+    private var upNext: [JfItem] { Array(player.queue.items.dropFirst(player.queue.index + 1)) }
 
     // MARK: Header
 
@@ -434,12 +516,14 @@ private struct OverlayContent: View {
     private var rightPanel: some View {
         ZStack {
             QueuePanel(player: player)
+                // Room for the close chevron in the corner.
+                .padding(.trailing, bar ? 30 : 0)
                 .opacity(showingLyrics ? 0 : 1)
                 .offset(x: showingLyrics ? -40 : 0)
                 .allowsHitTesting(!showingLyrics)
             VStack(spacing: 8) {
                 LyricsPanelHeader()
-                    .padding(.horizontal, 24)
+                    .padding(.leading, 24).padding(.trailing, bar ? 44 : 24)
                     .padding(.top, 10)
                 MacLyricsBody(player: player)
                     .padding(.horizontal, 12)
@@ -451,6 +535,42 @@ private struct OverlayContent: View {
         .frame(maxWidth: .infinity)
         .background(scrim)
         .clipped()
+    }
+}
+
+/// The song's quality under its title (Flutter's QualityLine): each value over its caps
+/// label. Asked of the server once per song, since queue items leave the file details out.
+private struct QualityLine: View {
+    let player: PlaybackService
+    @Environment(AppState.self) private var state
+    @State private var detail: (id: String, detail: MediaDetail?)?
+    private static var cache: [String: MediaDetail] = [:]
+
+    var body: some View {
+        let id = player.item?.id ?? ""
+        let pairs = NowPlayingQuality.of(detail?.id == id ? detail?.detail : nil, transcoding: player.isTranscoding,
+                                         transcodeBitrate: player.streamingQuality.bitrate)
+        HStack(alignment: .top, spacing: 22) {
+            ForEach(pairs, id: \.label) { pair in
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(pair.value).cx(.strong).foregroundStyle(Cx.text)
+                    Text(pair.label).cx(.caps).foregroundStyle(Cx.text3)
+                }
+                .accessibilityElement(children: .combine)
+            }
+        }
+        .opacity(pairs.isEmpty ? 0 : 1)
+        .animation(.easeOut(duration: 0.3), value: pairs.isEmpty)
+        .task(id: id) {
+            guard !id.isEmpty else { return }
+            if let cached = Self.cache[id] { detail = (id, cached); return }
+            let fetched = try? await state.client?.mediaDetail(itemId: id)
+            guard !Task.isCancelled else { return }
+            // ponytail: an unbounded cache cleared at 200 songs, as Flutter's.
+            if Self.cache.count > 200 { Self.cache.removeAll() }
+            if let fetched { Self.cache[id] = fetched }
+            detail = (id, fetched)
+        }
     }
 }
 

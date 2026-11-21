@@ -17,6 +17,7 @@ public struct MediaDetail: Decodable, Sendable {
         public var bitRate: Int?
         public var sampleRate: Int?
         public var channels: Int?
+        public var bitDepth: Int?
     }
     public struct Source: Decodable, Sendable {
         public var container: String?

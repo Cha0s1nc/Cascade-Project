@@ -11,7 +11,10 @@ struct PlayerBar: View {
     @State private var playedOverride: Bool?
     @State private var addingToPlaylist = false
     @Environment(\.uiScale) private var zoom
+    @AppStorage(MacNowPlayingUI.layoutKey) private var npLayout = MacNowPlayingUI.Layout.bar
     private var ui: MacNowPlayingUI { .shared }
+    /// Now Playing shows the cover big beside the bar: this one steps aside (Flutter's).
+    private var coverAside: Bool { npLayout == .bar && state.nowPlayingOpen }
 
     var body: some View {
         HStack(spacing: 16) {
@@ -24,6 +27,11 @@ struct PlayerBar: View {
                         .overlay { LoadingCoverOverlay(active: player.isWaitingToPlay).clipShape(ProportionalRoundedRectangle()) }
                 }
                 .buttonStyle(.plain)
+                .frame(width: coverAside ? 0 : nil, alignment: .leading)
+                .opacity(coverAside ? 0 : 1)
+                .scaleEffect(coverAside ? 0.6 : 1, anchor: .leading)
+                .animation(.easeInOut(duration: 0.32), value: coverAside)
+                .accessibilityHidden(coverAside)
                 .accessibilityLabel("Open Now Playing")
                 // The desktop's right-click on the bar's cover: the Now Playing menu.
                 .contextMenu {
@@ -100,14 +108,16 @@ struct PlayerBar: View {
             .frame(minWidth: 300, maxWidth: 560)
 
             HStack(spacing: 10) {
+                // Now Playing on its Lyrics or Queue, or closed again (Flutter's player bar).
+                panelButton(.lyrics, symbol: "quote.bubble", label: "Lyrics")
+                panelButton(.queue, symbol: "list.bullet", label: "Queue")
                 // The side lyrics column beside whatever is on screen.
-                Button { ui.sidePanelOpen.toggle() } label: {
-                    Image(systemName: ui.sidePanelOpen ? "quote.bubble.fill" : "quote.bubble")
-                }
-                .buttonStyle(.hover)
-                .foregroundStyle(ui.sidePanelOpen ? MacTheme.shared.accent : Cx.text2)
-                .help("Lyrics")
-                .accessibilityLabel("Lyrics")
+                Button { ui.sidePanelOpen.toggle() } label: { Image(systemName: "sidebar.right") }
+                    .buttonStyle(.hover)
+                    .foregroundStyle(ui.sidePanelOpen ? MacTheme.shared.accent : Cx.text2)
+                    .help("Lyrics beside the library")
+                    .accessibilityLabel("Lyrics beside the library")
+                    .accessibilityValue(ui.sidePanelOpen ? "Open" : "Closed")
                 Button { openWindow(id: "miniplayer") } label: { Image(systemName: "pip") }
                     .buttonStyle(.hover)
                     .foregroundStyle(Cx.text2)
@@ -146,8 +156,20 @@ struct PlayerBar: View {
         .onChange(of: player.item?.id) { playedOverride = nil }
     }
 
+    private func panelButton(_ panel: MacNowPlayingUI.RightPanel, symbol: String, label: String) -> some View {
+        let on = state.nowPlayingOpen && ui.rightPanel == panel
+        return Button { ui.show(panel, state: state) } label: { Image(systemName: symbol) }
+            .buttonStyle(.hover)
+            .foregroundStyle(on ? MacTheme.shared.accent : Cx.text2)
+            .help(label)
+            .accessibilityLabel(label)
+            .accessibilityAddTraits(on ? .isSelected : [])
+    }
+
+    /// Opens Now Playing; with the player bar staying under it, the bar closes it again.
     private func openNowPlaying() {
-        if player.item != nil { withAnimation(.easeInOut(duration: 0.38)) { state.nowPlayingOpen = true } }
+        guard player.item != nil else { return }
+        withAnimation(.easeInOut(duration: 0.38)) { state.nowPlayingOpen = npLayout == .bar ? !state.nowPlayingOpen : true }
     }
 }
 

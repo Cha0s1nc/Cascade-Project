@@ -29,6 +29,8 @@ struct ThemePanel: View {
 private struct ThemeMainPage: View {
     @Bindable private var theme = MacTheme.shared
     @State private var custom = MacTheme.shared.fontCustom
+    @AppStorage(MacNowPlayingUI.layoutKey) private var npLayout = MacNowPlayingUI.Layout.bar
+    @AppStorage("cascade.showArtStack") private var showArtStack = true
 
     var body: some View {
         Form {
@@ -70,6 +72,14 @@ private struct ThemeMainPage: View {
                         Text("Letters, numbers, spaces and hyphens only.").scaledFont(.caption).foregroundStyle(.secondary)
                     }
                 }
+            }
+            Section("Now Playing") {
+                Picker("Layout", selection: $npLayout) {
+                    Text("Player bar stays").tag(MacNowPlayingUI.Layout.bar)
+                    Text("Controls under the art").tag(MacNowPlayingUI.Layout.under)
+                }
+                // Flutter's key and wording, so the apps share it.
+                Toggle("Show what's next behind the art", isOn: $showArtStack)
             }
             SharePresetSection()
         }

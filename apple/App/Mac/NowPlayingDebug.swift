@@ -7,7 +7,8 @@ import CascadeKit
 /// run in order, once the player exists). Debug builds only, and it does nothing without the
 /// argument.
 ///
-/// play: plays 24 songs from the library. open: opens the overlay. lyrics, queue: the right
+/// play: plays 24 songs from the library. load: queues them paused at the fourth, as a
+/// restored queue (nothing plays; it does save the queue as the last one). open: opens the overlay. lyrics, queue: the right
 /// half. side: the side lyrics panel. light, dark: the mode. art: album-art accent on. idle:
 /// no-op placeholder to read as "leave it". theme: nothing (the popover needs a click).
 @MainActor
@@ -22,6 +23,11 @@ enum NowPlayingDebug {
             case "play":
                 if let songs = try? await client.songs(limit: 24) { await player.play(songs) }
                 try? await Task.sleep(for: .seconds(1.5))
+            case "load":
+                if let songs = try? await client.songs(limit: 24), songs.count > 3 {
+                    player.adoptRestoredQueue(RestoredQueue(queue: songs, index: 3, positionSec: 30, unshuffled: []),
+                                              shuffled: false, repeatMode: player.repeatMode)
+                }
             case "open": state.nowPlayingOpen = true
             case "lyrics": ui.rightPanel = .lyrics
             case "queue": ui.rightPanel = .queue
