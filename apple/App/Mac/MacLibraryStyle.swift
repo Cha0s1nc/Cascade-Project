@@ -275,6 +275,53 @@ struct CxDetailHeader<Actions: View>: View {
     }
 }
 
+/// The hover every card shares (Flutter's Hover): `content` is drawn with whether the
+/// pointer is over it, quick in and a little slower out. One place, so albums, shelves,
+/// Continue watching, posters and stills all answer the pointer alike.
+struct CardHover<Content: View>: View {
+    @ViewBuilder var content: (Bool) -> Content
+    @State private var hovering = false
+
+    var body: some View {
+        content(hovering || CardHover<EmptyView>.forced)
+            .contentShape(Rectangle())
+            .onHover { on in withAnimation(.easeOut(duration: on ? 0.12 : 0.2)) { hovering = on } }
+    }
+}
+
+extension CardHover where Content == EmptyView {
+    /// Debug builds: `-cascade.debugHover YES` draws every card hovered, to check the look
+    /// without a pointer.
+    static var forced: Bool {
+        #if DEBUG
+        UserDefaults.standard.bool(forKey: "cascade.debugHover")
+        #else
+        false
+        #endif
+    }
+}
+
+/// The accent play button a card shows under the pointer (Flutter's PlayCircle).
+struct CardPlayButton: View {
+    let help: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: "play.fill")
+                .font(.system(size: 15, weight: .bold))
+                .foregroundStyle(Cx.ink)
+                .frame(width: 40, height: 40)
+                .background(Cx.accent, in: Circle())
+                .shadow(color: .black.opacity(0.3), radius: 6, y: 2)
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .help(help)
+        .accessibilityLabel(help)
+    }
+}
+
 /// An album, playlist or artist card (Flutter's MediaCard): the art (round for an
 /// artist), its name and a line under it. Hovering lifts the name to the accent and,
 /// for anything with songs, shows a play button on the art.
@@ -282,44 +329,82 @@ struct MacTile: View {
     let item: JfItem
     var subtitle: String?
     @Environment(AppState.self) private var state
-    @State private var hovering = false
 
     private var isArtist: Bool { item.type == "MusicArtist" }
 
     var body: some View {
-        VStack(alignment: isArtist ? .center : .leading, spacing: 0) {
-            ArtworkView(itemId: item.id, size: 160, fillsFrame: true)
-                .aspectRatio(1, contentMode: .fit)
-                .clipShape(isArtist ? AnyShape(Circle()) : AnyShape(Rectangle()))
-                .shadow(color: .black.opacity(hovering && !isArtist ? 0.3 : 0), radius: 10, y: 4)
-                .overlay(alignment: .bottomTrailing) {
-                    if !isArtist {
-                        Button { Task { await state.player?.play(await tracksOf(item, client: state.client)) } } label: {
-                            Image(systemName: "play.fill")
-                                .font(.system(size: 15, weight: .bold))
-                                .foregroundStyle(Cx.ink)
-                                .frame(width: 40, height: 40)
-                                .background(Cx.accent, in: Circle())
-                                .shadow(color: .black.opacity(0.3), radius: 6, y: 2)
+        CardHover { hovering in
+            VStack(alignment: isArtist ? .center : .leading, spacing: 0) {
+                ArtworkView(itemId: item.id, size: 160, fillsFrame: true)
+                    .aspectRatio(1, contentMode: .fit)
+                    .clipShape(isArtist ? AnyShape(Circle()) : AnyShape(Rectangle()))
+                    .shadow(color: .black.opacity(hovering && !isArtist ? 0.3 : 0), radius: 10, y: 4)
+                    .overlay(alignment: .bottomTrailing) {
+                        if !isArtist && hovering {
+                            CardPlayButton(help: "Play") {
+                                Task { await state.player?.play(await tracksOf(item, client: state.client)) }
+                            }
+                            .padding(10)
+                            .transition(.opacity)
                         }
-                        .buttonStyle(.plain)
-                        .help("Play")
-                        .padding(10)
-                        .opacity(hovering ? 1 : 0)
                     }
+                Text(item.name ?? "Unknown")
+                    .cx(.row)
+                    .foregroundStyle(hovering ? Cx.accent : Cx.text)
+                    .lineLimit(1)
+                    .padding(.top, 10)
+                if let subtitle, !subtitle.isEmpty {
+                    Text(subtitle).cx(.small).foregroundStyle(Cx.text3).lineLimit(1).padding(.top, 3)
                 }
-            Text(item.name ?? "Unknown")
-                .cx(.row)
-                .foregroundStyle(hovering ? Cx.accent : Cx.text)
-                .lineLimit(1)
-                .padding(.top, 10)
-            if let subtitle, !subtitle.isEmpty {
-                Text(subtitle).cx(.small).foregroundStyle(Cx.text3).lineLimit(1).padding(.top, 3)
             }
+            .frame(maxWidth: .infinity, alignment: isArtist ? .center : .leading)
         }
-        .frame(maxWidth: .infinity, alignment: isArtist ? .center : .leading)
-        .contentShape(Rectangle())
-        .onHover { on in withAnimation(.easeOut(duration: 0.12)) { hovering = on } }
+    }
+}
+
+/// A movie's or show's poster on the Mac (Flutter's posterCard): under the pointer the art
+/// dims, a play button sits at its bottom left (Play or Resume for a movie, the next episode
+/// for a show) and the name turns to the accent.
+struct MacPosterTile: View {
+    let item: JfItem
+    @Environment(AppState.self) private var state
+    @Environment(\.uiScale) private var zoom
+
+    private var playLabel: String {
+        item.type == "Series" ? "Play next episode" : (item.userData?.playbackPositionTicks ?? 0) > 0 ? "Resume" : "Play"
+    }
+
+    var body: some View {
+        CardHover { hovering in
+            VStack(alignment: .leading, spacing: 0) {
+                ArtworkView(itemId: item.id, size: posterWidth, aspect: 2.0 / 3.0)
+                    .overlay(alignment: .bottom) { WatchedBar(item: item) }
+                    .overlay { ProportionalRoundedRectangle().fill(.black.opacity(hovering ? 0.55 : 0)).allowsHitTesting(false) }
+                    .overlay(alignment: .bottomLeading) {
+                        if hovering && (item.type == "Movie" || item.type == "Series") {
+                            CardPlayButton(help: playLabel) { Task { await play() } }
+                                .padding(10)
+                                .transition(.opacity)
+                        }
+                    }
+                Text(item.name ?? "Untitled").cx(.row).foregroundStyle(hovering ? Cx.accent : Cx.text)
+                    .lineLimit(1).padding(.top, 8)
+                if let year = item.productionYear {
+                    Text(String(year)).cx(.small).foregroundStyle(Cx.text3).padding(.top, 2)
+                }
+            }
+            .frame(width: posterWidth * zoom, alignment: .leading)
+        }
+    }
+
+    /// A movie where it was left (the player resumes); a show at its next episode.
+    private func play() async {
+        if item.type == "Series" {
+            guard let next = try? await state.client?.nextUp(seriesId: item.id, limit: 1).first else { return }
+            await state.playVideoItem(next)
+        } else {
+            await state.playVideoItem(item)
+        }
     }
 }
 

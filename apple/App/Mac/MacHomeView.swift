@@ -151,21 +151,25 @@ struct MacHomeView: View {
         HStack(alignment: .top, spacing: 20 * zoom) {
             ForEach(watching.prefix(max(1, min(3, Int((width + 20 * zoom) / (330 * zoom)))))) { item in
                 Button { Task { await state.playVideoItem(item) } } label: {
-                    HStack(spacing: 14) {
-                        ArtworkView(itemId: item.id, size: 176, aspect: 16.0 / 9.0,
-                                    imageType: item.type == "Movie" && item.backdropImageTags?.isEmpty == false ? "Backdrop" : "Primary")
-                            .overlay(alignment: .bottom) { WatchedBar(item: item) }
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(item.seriesName ?? item.name ?? "Untitled").cx(.strong).foregroundStyle(Cx.text).lineLimit(1)
-                            Text(item.type == "Episode"
-                                 ? [VideoPlayback.episodeCode(item), item.name].compactMap { $0 }.joined(separator: " \u{00B7} ")
-                                 : ["Movie", item.productionYear.map(String.init)].compactMap { $0 }.joined(separator: " \u{00B7} "))
-                                .cx(.small).foregroundStyle(Cx.text2).lineLimit(1)
-                            if let left = timeLeft(item) { Text(left).cx(.small).foregroundStyle(Cx.text3) }
+                    CardHover { hovering in
+                        HStack(spacing: 14) {
+                            ArtworkView(itemId: item.id, size: 176, aspect: 16.0 / 9.0,
+                                        imageType: item.type == "Movie" && item.backdropImageTags?.isEmpty == false ? "Backdrop" : "Primary")
+                                .overlay(alignment: .bottom) { WatchedBar(item: item) }
+                                // A click plays it, so under the pointer it shows a play mark.
+                                .overlay { if hovering { PlayMarkOverlay() } }
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(item.seriesName ?? item.name ?? "Untitled").cx(.strong)
+                                    .foregroundStyle(hovering ? Cx.accent : Cx.text).lineLimit(1)
+                                Text(item.type == "Episode"
+                                     ? [VideoPlayback.episodeCode(item), item.name].compactMap { $0 }.joined(separator: " \u{00B7} ")
+                                     : ["Movie", item.productionYear.map(String.init)].compactMap { $0 }.joined(separator: " \u{00B7} "))
+                                    .cx(.small).foregroundStyle(Cx.text2).lineLimit(1)
+                                if let left = timeLeft(item) { Text(left).cx(.small).foregroundStyle(Cx.text3) }
+                            }
+                            .frame(maxWidth: 160 * zoom, alignment: .leading)
                         }
-                        .frame(maxWidth: 160 * zoom, alignment: .leading)
                     }
-                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
             }
@@ -187,16 +191,8 @@ struct MacHomeView: View {
             let width = (geo.size.width - gap * CGFloat(count - 1)) / CGFloat(count)
             HStack(alignment: .top, spacing: gap) {
                 ForEach(albums.prefix(count)) { album in
-                    NavigationLink(value: album) {
-                        VStack(alignment: .leading, spacing: 0) {
-                            ArtworkView(itemId: album.id, size: width / zoom)
-                                .padding(.bottom, 8)
-                            Text(album.name ?? "Unknown").cx(.row).foregroundStyle(Cx.text).lineLimit(1)
-                            Text(album.albumArtist ?? "").cx(.small).foregroundStyle(Cx.text2).lineLimit(1)
-                        }
-                        .frame(width: width, alignment: .leading)
-                        .contentShape(Rectangle())
-                    }
+                    // The library's card, so the shelf answers the pointer as the grids do.
+                    NavigationLink(value: album) { MacTile(item: album, subtitle: album.albumArtist).frame(width: width) }
                     .buttonStyle(.plain)
                     .itemContextMenu(album)
                 }

@@ -18,6 +18,9 @@ struct PosterTile: View {
 
     var body: some View {
         NavigationLink(value: item) {
+            #if os(macOS)
+            MacPosterTile(item: item)
+            #else
             VStack(alignment: .leading, spacing: 4) {
                 ArtworkView(itemId: item.id, size: posterWidth, aspect: 2.0 / 3.0)
                     .overlay(alignment: .bottom) { WatchedBar(item: item) }
@@ -27,6 +30,7 @@ struct PosterTile: View {
                 }
             }
             .frame(width: posterWidth)
+            #endif
         }
         .buttonStyle(.plain)
         #if os(macOS)
@@ -80,21 +84,45 @@ struct VideoStillTile: View {
         Button {
             Task { await state.playVideoItem(item) }
         } label: {
-            VStack(alignment: .leading, spacing: 4) {
-                // A movie's own 16:9 picture is its backdrop; its Primary is
-                // the poster, which a wide frame crops.
-                ArtworkView(itemId: item.id, size: stillWidth, aspect: 16.0 / 9.0,
-                            imageType: item.type == "Movie" && item.backdropImageTags?.isEmpty == false ? "Backdrop" : "Primary")
-                    .overlay(alignment: .bottom) { WatchedBar(item: item) }
-                Text(item.seriesName ?? item.name ?? "Untitled").scaledFont(.caption).lineLimit(1)
-                if item.type == "Episode" {
-                    Text([VideoPlayback.episodeCode(item), item.name].compactMap { $0 }.joined(separator: " \u{00b7} "))
-                        .scaledFont(.caption2).foregroundStyle(.secondary).lineLimit(1)
-                }
-            }
-            .frame(width: stillWidth)
+            #if os(macOS)
+            // The whole still plays, so under the pointer it dims with a play mark (CardHover).
+            CardHover { hovering in stillBody(hovering) }
+            #else
+            stillBody(false)
+            #endif
         }
         .buttonStyle(.plain)
+    }
+
+    private func stillBody(_ hovering: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            // A movie's own 16:9 picture is its backdrop; its Primary is
+            // the poster, which a wide frame crops.
+            ArtworkView(itemId: item.id, size: stillWidth, aspect: 16.0 / 9.0,
+                        imageType: item.type == "Movie" && item.backdropImageTags?.isEmpty == false ? "Backdrop" : "Primary")
+                .overlay(alignment: .bottom) { WatchedBar(item: item) }
+                .overlay { if hovering { PlayMarkOverlay() } }
+            Text(item.seriesName ?? item.name ?? "Untitled").scaledFont(.caption).lineLimit(1)
+            if item.type == "Episode" {
+                Text([VideoPlayback.episodeCode(item), item.name].compactMap { $0 }.joined(separator: " \u{00b7} "))
+                    .scaledFont(.caption2).foregroundStyle(.secondary).lineLimit(1)
+            }
+        }
+        .frame(width: stillWidth)
+    }
+}
+
+/// A still or Continue watching card under the pointer: the picture dims and a play mark
+/// shows, since a click plays it.
+struct PlayMarkOverlay: View {
+    var body: some View {
+        ZStack {
+            ProportionalRoundedRectangle().fill(.black.opacity(0.45))
+            Image(systemName: "play.fill").font(.system(size: 22, weight: .bold)).foregroundStyle(.white)
+                .shadow(color: .black.opacity(0.4), radius: 4)
+        }
+        .allowsHitTesting(false)
+        .transition(.opacity)
     }
 }
 
