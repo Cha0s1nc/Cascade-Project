@@ -8,15 +8,16 @@ import CascadeKit
 
 extension View {
     /// A library page's margins, as Home's, grown with View > Zoom.
-    func cxPage() -> some View { modifier(CxPageMargins()) }
+    func cxPage(bottom: CGFloat = 40) -> some View { modifier(CxPageMargins(bottom: bottom)) }
 }
 
 private struct CxPageMargins: ViewModifier {
+    let bottom: CGFloat
     @Environment(\.uiScale) private var zoom
     func body(content: Content) -> some View {
         content
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 36 * zoom).padding(.top, 30 * zoom).padding(.bottom, 40 * zoom)
+            .padding(.horizontal, 36 * zoom).padding(.top, 30 * zoom).padding(.bottom, bottom * zoom)
     }
 }
 

@@ -26,7 +26,7 @@ Everything pure and testable lives in `CascadeKit`. The app targets are thin ref
   - `AppState.swift` - the one session and one player, read from the environment.
   - `Keychain.swift` - the access token lives here, not in UserDefaults.
   - `Components.swift` - `ArtworkView`, `TrackRow`, `ItemTiles`, `LoadingOverlay` (empty copy and Try Again per screen).
-  - `Personality.swift` - Personality v1's colors (`Cx`, Dark and Light) and type tokens (`.cx(.hero)` and the rest, Hanken Grotesk and Inter from `flutter/assets/fonts`). New and restyled views take their colors and fonts from here. Status in MAC-PARITY.md.
+  - `Personality.swift` - Personality v1's colors (`Cx`, Dark and Light) and type tokens (`.cx(.hero)` and the rest, Hanken Grotesk and Inter from `flutter/assets/fonts`). New and restyled views take their colors and fonts from here. The Mac's library pages build on `App/Mac/MacLibraryStyle.swift` (page header, filter chips, cards, the album, artist and playlist header, track rows). Status in MAC-PARITY.md.
   - `MainView.swift` - tabs, plus the iOS mini player.
   - One file per screen.
 - `project.yml` - xcodegen input. `Cascade.xcodeproj` is generated, not committed; run `xcodegen generate` after cloning.

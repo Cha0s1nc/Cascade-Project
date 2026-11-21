@@ -62,25 +62,22 @@ private func shortDate(_ iso: String?) -> String {
 }
 
 extension SongsView {
+    /// Personality v1 (the Penpot "Mac / Songs" board): the page header with its voice line,
+    /// sort, Play and Shuffle, the filter chips, then the table on the page's background.
     @MainActor var macContent: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 10) {
-                Button { Task { await playAll(shuffled: false) } } label: {
-                    Label("Play", systemImage: "play.fill")
-                }
-                Button { Task { await playAll(shuffled: true) } } label: {
-                    Label("Shuffle All", systemImage: "shuffle")
-                }
-                Spacer()
-                if isLoading || !items.isEmpty {
-                    Text(items.count == 1 ? "1 song" : "\(items.count.formatted()) songs")
-                        .scaledFont(.callout).foregroundStyle(.secondary)
-                    if !loadedAll { ProgressView().controlSize(.small) }
-                }
+        VStack(alignment: .leading, spacing: 0) {
+            CxPageHeader(title: "Songs", voice: songsVoice) {
+                SortMenu(fields: [(SongSortField.name, "Title"), (.artist, "Artist"), (.album, "Album"),
+                                  (.added, "Date Added"), (.played, "Date Last Played")],
+                         field: Binding(get: { sortField }, set: { sortField = $0; sortDirection = $0.defaultDirection }),
+                         direction: Binding(get: { sortDirection }, set: { sortDirection = $0 }), chip: true)
+                PillButton("Play", symbol: "play.fill", primary: true) { Task { await playAll(shuffled: false) } }
+                PillButton("Shuffle", symbol: "shuffle") { Task { await playAll(shuffled: true) } }
+            } below: {
+                FilterChips(filter: $filter, itemType: "Audio")
             }
-            .padding(.horizontal).padding(.vertical, 8)
             .disabled(isStarting)
-            Divider()
+            .cxPage(bottom: 0)
             if items.isEmpty {
                 LoadingOverlay(isLoading: isLoading, error: error, isEmpty: true, skeleton: .rows)
                     .frame(maxHeight: .infinity)
@@ -92,14 +89,18 @@ extension SongsView {
                     // a row view for all of them, not just the visible ones:
                     // 1,200 songs held the main thread for about 45 seconds.
                     .id("\(sortField.rawValue)|\(sortDirection)")
+                    .padding(.horizontal, 24)
             }
         }
-        .toolbar {
-            ToolbarItemGroup {
-                sortMenu
-                FilterMenu(filter: $filter, itemType: "Audio")
-            }
-        }
+    }
+
+    /// Flutter's "4,212 songs, 11d 6h of music", once every page is in. Before that, how
+    /// many have loaded, so the page does not claim a total it has not seen.
+    @MainActor private var songsVoice: String? {
+        guard !items.isEmpty else { return nil }
+        guard loadedAll else { return "\(cxCount(items.count, "song")) so far\u{2026}" }
+        let total = items.reduce(0.0) { $0 + ($1.runTimeTicks.map(seconds(fromTicks:)) ?? 0) }
+        return "\(cxCount(items.count, "song")), \(QueueMeta.formatSpan(total)) of music"
     }
 }
 
@@ -129,29 +130,31 @@ private struct SongsTable: View {
             }
             .width(min: 160, ideal: 280)
             TableColumn("Artist", value: \.songArtist) { track in
-                cell(track) { Text(track.songArtist).lineLimit(1).foregroundStyle(.secondary) }
+                cell(track) { Text(track.songArtist).lineLimit(1).foregroundStyle(Cx.text2) }
             }
             .width(min: 100, ideal: 180)
             TableColumn("Album", value: \.songAlbum) { track in
-                cell(track) { Text(track.songAlbum).lineLimit(1).foregroundStyle(.secondary) }
+                cell(track) { Text(track.songAlbum).lineLimit(1).foregroundStyle(Cx.text2) }
             }
             .width(min: 100, ideal: 200)
             TableColumn("Date Added", value: \.songAdded) { track in
-                cell(track) { Text(shortDate(track.dateCreated)).foregroundStyle(.secondary) }
+                cell(track) { Text(shortDate(track.dateCreated)).foregroundStyle(Cx.text3) }
             }
             .width(min: 90, ideal: 110)
             TableColumn("Last Played", value: \.songPlayed) { track in
-                cell(track) { Text(shortDate(track.userData?.lastPlayedDate)).foregroundStyle(.secondary) }
+                cell(track) { Text(shortDate(track.userData?.lastPlayedDate)).foregroundStyle(Cx.text3) }
             }
             .width(min: 90, ideal: 110)
             TableColumn("Time") { track in
                 cell(track) {
                     Text(track.runTimeTicks.map { clock(seconds(fromTicks: $0)) } ?? "")
-                        .monospacedDigit().foregroundStyle(.secondary)
+                        .monospacedDigit().foregroundStyle(Cx.text3)
                 }
             }
             .width(52)
         }
+        // On the page's background, as the Penpot board, not the system's table color.
+        .scrollContentBackground(.hidden)
         .onAppear { order = [field.comparator(direction)] }
         // Header clicks and the toolbar's menu are the same setting. Each side
         // only writes when it differs, so neither echoes the other back.
@@ -193,7 +196,7 @@ private struct SongsTable: View {
         content()
             .environment(state)
             .environment(\.uiScale, uiScale)
-            .font(.system(size: 13 * uiScale))
+            .font(.cxBody(13 * uiScale))
             // The desktop's row: 45 pt with a 32 pt cover (SONG_ROW_H in
             // renderer.js), not the table's default single tight line.
             .frame(maxWidth: .infinity, minHeight: 37 * uiScale, alignment: .leading)

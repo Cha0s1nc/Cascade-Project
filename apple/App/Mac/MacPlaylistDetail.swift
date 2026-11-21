@@ -52,9 +52,10 @@ struct MacPlaylistDetail: View {
         VStack(spacing: 0) {
             header
             if editing && isReal { bulkBar }
-            Divider()
             if tracks.isEmpty {
-                LoadingOverlay(isLoading: isLoading, error: error, isEmpty: true, skeleton: .rows).frame(maxHeight: .infinity)
+                LoadingOverlay(isLoading: isLoading, error: error, isEmpty: true, skeleton: .rows,
+                               emptyTitle: "No songs yet", emptyMessage: isReal ? "Add some from any song\u{2019}s menu." : "Nothing matches the rules yet.")
+                    .frame(maxHeight: .infinity)
             } else {
                 list
             }
@@ -84,36 +85,39 @@ struct MacPlaylistDetail: View {
 
     // MARK: Header
 
+    /// Personality v1, as the Penpot "Mac / Playlist" board and Flutter's PlaylistPage: the big
+    /// header over the cover's wash, its editing buttons beside Play and Shuffle.
     private var header: some View {
-        HStack(spacing: 14) {
-            if let playlistItem { ArtworkView(itemId: playlistItem.id, size: 72) }
-            VStack(alignment: .leading, spacing: 4) {
-                Text(name).font(.title2.bold()).lineLimit(1)
-                Text(tracks.count == 1 ? "1 song" : "\(tracks.count) songs").foregroundStyle(.secondary)
-                HStack {
-                    Button { play(shuffled: false) } label: { Label("Play", systemImage: "play.fill") }
-                        .buttonStyle(.borderedProminent)
-                    Button { play(shuffled: true) } label: { Label("Shuffle", systemImage: "shuffle") }
-                    Button { Task { await load() } } label: { Image(systemName: "arrow.clockwise") }
-                        .help("Refresh")
-                    if isReal {
-                        Button(editing ? "Done" : "Edit") { toggleEditing() }
-                        Button { openProps() } label: { Image(systemName: "pencil") }
-                            .help("Name, picture, description and public")
-                        Button(role: .destructive) { confirmingDelete = true } label: { Image(systemName: "trash") }
-                            .disabled(!state.canDelete)
-                            .help(state.canDelete ? "Delete playlist" : "Needs delete permission")
-                    } else if userSmart != nil {
-                        Button("Edit Rules") { editingRules = true }
-                        Button("Save as a Playlist") { savedName = name; savingAs = true }
-                        Button(role: .destructive) { confirmingDelete = true } label: { Image(systemName: "trash") }
+        CxDetailHeader(label: isReal ? "Playlist" : "Smart playlist", title: name,
+                       artId: playlistItem?.id ?? tracks.first?.albumId, meta: meta) {
+            Group {
+                PillButton("Play", symbol: "play.fill", primary: true) { play(shuffled: false) }
+                PillButton("Shuffle", symbol: "shuffle") { play(shuffled: true) }
+                if let playlistItem { CxLikeButton(item: playlistItem) }
+                CxIconButton(symbol: "arrow.clockwise", help: "Refresh") { Task { await load() } }
+                if isReal {
+                    CxIconButton(symbol: "pencil", help: "Name, picture, description and public") { openProps() }
+                    CxIconButton(symbol: "trash", help: state.canDelete ? "Delete playlist" : "Needs delete permission") {
+                        confirmingDelete = true
                     }
+                    .disabled(!state.canDelete)
+                    PillButton(editing ? "Done" : "Edit", symbol: editing ? "checkmark" : "arrow.up.arrow.down",
+                               primary: editing) { toggleEditing() }
+                } else if userSmart != nil {
+                    CxIconButton(symbol: "trash", help: "Delete smart playlist") { confirmingDelete = true }
+                    PillButton("Edit Rules", symbol: "slider.horizontal.3") { editingRules = true }
+                    PillButton("Save as a Playlist", symbol: "plus") { savedName = name; savingAs = true }
                 }
-                .disabled(tracks.isEmpty && !isLoading)
             }
-            Spacer()
+            .disabled(tracks.isEmpty && !isLoading)
         }
-        .padding(14)
+    }
+
+    /// "38 songs · 2h 41m".
+    private var meta: String {
+        guard !tracks.isEmpty else { return isLoading ? "" : "No songs" }
+        let total = tracks.reduce(0.0) { $0 + ($1.runTimeTicks.map(seconds(fromTicks:)) ?? 0) }
+        return "\(cxCount(tracks.count, "song")) \u{00B7} \(QueueMeta.formatSpan(total))"
     }
 
     private var bulkBar: some View {
@@ -129,7 +133,8 @@ struct MacPlaylistDetail: View {
         }
         .disabled(!canEdit)
         .padding(.horizontal, 14).padding(.vertical, 6)
-        .background(.bar)
+        .background(Cx.surface, in: RoundedRectangle(cornerRadius: 10))
+        .padding(.horizontal, 30).padding(.bottom, 8)
     }
 
     // MARK: List
@@ -138,6 +143,7 @@ struct MacPlaylistDetail: View {
         List(selection: $selection) {
             ForEach(Array(tracks.enumerated()), id: \.element.entryId) { index, track in
                 row(track, index: index)
+                    .listRowSeparator(.hidden)
             }
             .onMove(perform: isReal && canEdit ? { from, to in
                 var order = tracks
@@ -159,26 +165,28 @@ struct MacPlaylistDetail: View {
             Task { await state.player?.play(tracks, startIndex: first) }
         }
         .trackActionHost()
+        .scrollContentBackground(.hidden)
+        .padding(.horizontal, 24)
     }
 
     private func row(_ track: JfItem, index: Int) -> some View {
         HStack(spacing: 10) {
-            Text("\(index + 1)").foregroundStyle(.secondary).monospacedDigit().frame(width: 28, alignment: .trailing)
+            Text("\(index + 1)").cx(.small).foregroundStyle(Cx.text3).monospacedDigit().frame(width: 28, alignment: .trailing)
             PlayingIndicator(itemId: track.id)
-            ArtworkView(itemId: track.albumId ?? track.id, size: 28)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(track.name ?? "").lineLimit(1).explicitMark(track.id)
-                Text(track.albumArtist ?? track.artists?.first ?? "").scaledFont(.caption).foregroundStyle(.secondary).lineLimit(1)
+            ArtworkView(itemId: track.albumId ?? track.id, size: 36)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(track.name ?? "").cx(.row).lineLimit(1).explicitMark(track.id)
+                Text(track.albumArtist ?? track.artists?.first ?? "").cx(.small).foregroundStyle(Cx.text3).lineLimit(1)
             }
             Spacer()
-            Text(track.album ?? "").foregroundStyle(.secondary).lineLimit(1).frame(maxWidth: 200, alignment: .leading)
+            Text(track.album ?? "").cx(.small).foregroundStyle(Cx.text2).lineLimit(1).frame(maxWidth: 220, alignment: .leading)
             if extraTitle != nil {
-                Text(extra(track)).foregroundStyle(.secondary).monospacedDigit().frame(width: 100, alignment: .trailing)
+                Text(extra(track)).cx(.small).foregroundStyle(Cx.text3).monospacedDigit().frame(width: 100, alignment: .trailing)
                     // The full explanation: Jellyfin has no per-playlist add date.
                     .help(isReal ? "When this song was added to the server library, not to this playlist" : "")
             }
-            Text(track.runTimeTicks.map { clock(seconds(fromTicks: $0)) } ?? "").monospacedDigit()
-                .foregroundStyle(.secondary).frame(width: 52, alignment: .trailing)
+            Text(track.runTimeTicks.map { clock(seconds(fromTicks: $0)) } ?? "").cx(.small).monospacedDigit()
+                .foregroundStyle(Cx.text3).frame(width: 52, alignment: .trailing)
         }
         .contentShape(Rectangle())
         .desktopTrackRow(track.id)
