@@ -193,20 +193,9 @@ public extension JellyfinClient {
     }
 
     /// The years that have items of this type in the chosen libraries, for
-    /// the decade filter: only decades that exist are offered, as on the
-    /// desktop. /Items/Filters takes one parentId, so it is asked per library.
+    /// the decade filter: only decades that exist are offered, as on the desktop.
     func years(of itemType: String) async throws -> [Int] {
-        struct Filters: Decodable { var years: [Int]? }
-        let libraries = libraryScope
-        var years = Set<Int>()
-        for parent in libraries.isEmpty ? [nil] : libraries.map(Optional.some) {
-            let found: Filters = try await get("/Items/Filters", params: [
-                "userId": currentConfig.userId, "parentId": parent,
-                "includeItemTypes": itemType, "recursive": "true",
-            ])
-            years.formUnion(found.years ?? [])
-        }
-        return years.sorted()
+        try await years(of: itemType, libraryIds: libraryScope)
     }
 
     /// A genre's songs in album order, for its Play button.

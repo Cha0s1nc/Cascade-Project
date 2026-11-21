@@ -229,16 +229,18 @@ public extension JellyfinClient {
     }
 
     /// Years with items of this type in the given libraries, for the decade filter.
+    /// /Years, one library at a time (it takes one parentId): Jellyfin 12 answers
+    /// /Items/Filters with every list empty, so the decade filter offered nothing.
     func years(of itemType: String, libraryIds: [String]) async throws -> [Int] {
-        struct Filters: Decodable { var years: [Int]? }
         var years = Set<Int>()
         for parent in libraryIds.isEmpty ? [nil] : libraryIds.map(Optional.some) {
             let params: [String: String?] = [
                 "userId": currentConfig.userId, "parentId": parent,
                 "includeItemTypes": itemType, "recursive": "true",
+                "enableUserData": "false", "enableImages": "false",
             ]
-            let found: Filters = try await get("/Items/Filters", params: params)
-            years.formUnion(found.years ?? [])
+            let found: JfItemsResponse = try await get("/Years", params: params)
+            years.formUnion((found.items ?? []).compactMap { $0.name.flatMap { Int($0) } })
         }
         return years.sorted()
     }

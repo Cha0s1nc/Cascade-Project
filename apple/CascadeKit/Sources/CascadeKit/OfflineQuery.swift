@@ -63,6 +63,7 @@ public enum OfflineQuery {
         case 1 where s[0] == "items": return items(c, p, random)
         case 2 where s[0] == "items" && s[1] == "latest": return latest(c, p)
         case 2 where s[0] == "items" && s[1] == "filters": return queryFilters(c, p)
+        case 1 where s[0] == "years": return years(c, p)
         case 2 where s[0] == "items" && idLike(s[1]) && !reserved.contains(s[1]): return oneItem(c, id(1))
         case 1 where s[0] == "userviews": return views(c)
         case 2 where s[0] == "users" && idLike(s[1]): return user(c, s[1] == "me" ? "me" : id(1))
@@ -716,6 +717,17 @@ public enum OfflineQuery {
             tags: [],
             officialRatings: sortedUniq(entries.compactMap(\.item.officialRating)),
             years: Set(entries.compactMap(\.item.productionYear)).sorted()))
+    }
+
+    /// /Years: a Year item per year that has items of these types, named by the year, newest
+    /// first as Jellyfin lists them (the decade filter reads them).
+    static func years(_ c: Catalog, _ p: Params) -> OfflineAnswer {
+        let types = types(p)
+        var entries = inLibrary(c.all(withPeople: false, types: types), parent(p))
+        if !types.isEmpty { entries = entries.filter { types.contains(typeOf($0)) } }
+        let out = Set(entries.compactMap(\.item.productionYear)).sorted(by: >)
+            .map { JfItem(id: "year-\($0)", name: String($0), type: "Year") }
+        return ok(Page(items: out, totalRecordCount: out.count, startIndex: 0))
     }
 
     static func views(_ c: Catalog) -> OfflineAnswer {

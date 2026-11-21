@@ -159,6 +159,18 @@ struct OfflineQueryTests {
         #expect(OfflineQuery.cmpText("Zeta", "échos") < 0)
         #expect(OfflineQuery.cmpText("a", "A") == 0)
     }
+
+    // /Years, which the decade filter reads (Jellyfin 12 left /Items/Filters empty). The
+    // fixture's films library has films from 1989 and 2021 (its "decade and rating
+    // filters" case); not in the shared fixture, as the desktop does not ask /Years.
+    @Test func yearsListsTheYearsPresent() throws {
+        let answer = OfflineQuery.answer(try Self.catalog(), path: "/Years",
+                                         params: ["parentId": "libfilms", "includeItemTypes": "Movie", "recursive": "true"])
+        let page = try JSON.decoder.decode(JfItemsResponse.self, from: answer.body)
+        #expect(answer.status == 200 && !answer.unknownRoute)
+        #expect(page.items?.compactMap(\.name) == ["2021", "1989"])
+        #expect(page.items?.allSatisfy { $0.type == "Year" } == true)
+    }
 }
 
 extension OfflineQueryTests.Case: CustomTestStringConvertible {
