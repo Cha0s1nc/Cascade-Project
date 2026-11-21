@@ -86,4 +86,6 @@ The Penpot file "Cascade Personality v1" (pages SwiftUI / Mac and SwiftUI / iPho
 - Player bar: built - surface with a top line, 48 pt art, the solid accent play button, a 4 pt scrubber, the track-colored volume bar
 - Home: built - one Home for both modes: greeting, the voice line (HomeVoice, worded as Flutter's), Recently played as the Home card (Last played, Previously queued from the restore offer, which no longer shows in the corner on Home, or Now playing, with the art stack behind it) beside eight song tiles, Continue watching, Recently added. The card's "From <playlist>" line is missing (the player does not keep where a queue came from), and there is no Rediscover shelf
 - Not restyled yet: every other page, Now Playing, Settings, the miniplayer, and the iPhone and Apple TV apps (they get the tokens and fonts, nothing else yet)
+- Changed on purpose, as Flutter's desktop does: no Music / Video picker in the toolbar (the sidebar shows both, search covers both); the Mac's Home no longer has Recent Playlists and Frequently Played, and Video Home (Recently Added Movies and Episodes) is not reachable from the Mac
+- Known gap: the sidebar is buttons now, not a List, so arrow keys no longer move through it; Tab reaches the rows only with Full Keyboard Access on
 

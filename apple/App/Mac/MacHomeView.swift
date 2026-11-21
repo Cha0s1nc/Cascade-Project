@@ -20,6 +20,7 @@ struct MacHomeView: View {
     @State private var width: CGFloat = 0
 
     private var libraries: VideoLibrarySelection { state.videoLibraries }
+    private static var voiceCache: (key: String, line: String)?
 
     var body: some View {
         ScrollView {
@@ -82,7 +83,14 @@ struct MacHomeView: View {
         }
         loading = false
         // The voice line is a nicety: on any failure the date stays.
-        if let stats = try? await client.homeStats() { voice = HomeVoice.line(songs: stats.songs, week: stats.week) }
+        // ponytail: worked out once per launch and account (it reads up to 500 plays), as
+        // Flutter's stats(); refresh it on a timer if a long-running session drifts.
+        let key = "\(state.config?.url ?? "")|\(state.config?.userId ?? "")|\(state.config?.libraryIds ?? [])"
+        if let cached = Self.voiceCache, cached.key == key { voice = cached.line; return }
+        if let stats = try? await client.homeStats() {
+            voice = HomeVoice.line(songs: stats.songs, week: stats.week)
+            Self.voiceCache = (key, voice!)
+        }
     }
 
     private func loadVideo() async {
