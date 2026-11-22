@@ -162,3 +162,31 @@ struct SpicyLyricsTests {
         #expect(Lyrics.wordUnits(long, emphasis: false).count == 16)
     }
 }
+
+@Suite("Hand-linked ids")
+struct HandLinkedIdTests {
+    @Test("any id the server takes is read back, normalized")
+    func anyTrackId() {
+        let spotify = "4cOdK2wGLETKBW3PvgPWqT"
+        #expect(Spotify.anyTrackId(spotify) == spotify)
+        #expect(Spotify.anyTrackId("GBARL9300135") == "GBARL9300135")
+        #expect(Spotify.anyTrackId(" gb-arl-93-00135 ") == "GBARL9300135", "hyphens out and uppercased before the check")
+        #expect(Spotify.anyTrackId("1438556832") == "1438556832", "Apple Music")
+        // 22 digits is a Spotify id: an Apple id stops at 20.
+        #expect(Spotify.anyTrackId(String(repeating: "1", count: 22)) == String(repeating: "1", count: 22))
+        #expect(Spotify.anyTrackId(String(repeating: "1", count: 21)) == nil)
+        // Nothing that could reach the server's cache as a path.
+        #expect(Spotify.anyTrackId("../etc/passwd") == nil)
+        #expect(Spotify.anyTrackId("GB-ARL/9300135") == nil)
+        #expect(Spotify.anyTrackId("GBARL930013") == nil, "an ISRC is 12")
+        #expect(Spotify.anyTrackId("") == nil)
+    }
+
+    @Test("a linked id shows as a link only when it is a Spotify id")
+    func linkText() {
+        #expect(Spotify.linkText("4cOdK2wGLETKBW3PvgPWqT") == "https://open.spotify.com/track/4cOdK2wGLETKBW3PvgPWqT")
+        // An ISRC has no link form, so showing one gave a URL that parsed as nothing.
+        #expect(Spotify.linkText("GBARL9300135") == "GBARL9300135")
+        #expect(Spotify.linkText("1438556832") == "1438556832")
+    }
+}

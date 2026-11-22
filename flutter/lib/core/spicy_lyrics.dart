@@ -170,9 +170,6 @@ const maxSpicyCandidates = 3;
 /// How long a SpicyLyrics miss stops the same track being asked again.
 const spicyMissMs = 24 * 60 * 60 * 1000;
 
-/// How long a song ListenBrainz knew no Spotify id for waits before asking again.
-const spotifyIdRetryMs = 7 * 24 * 60 * 60 * 1000;
-
 /// How long a SpicyLyrics answer is kept (25 days, under the terms' 30).
 const spicyCacheMs = 25 * 24 * 60 * 60 * 1000;
 
@@ -181,19 +178,6 @@ bool spicyCacheFresh(Object? savedAtMs, int nowMs) => savedAtMs is num && savedA
 
 /// The lyrics URL for a Spotify id.
 String spicyLyricsUrl(String spotifyId) => 'https://api.spicylyrics.org/v1/lyrics/${Uri.encodeComponent(spotifyId)}';
-
-/// ListenBrainz Labs' keyless Spotify-id lookup by metadata.
-String listenBrainzUrl(String artist, String album, String title) {
-  String q(String v) => Uri.encodeQueryComponent(v);
-  return 'https://labs.api.listenbrainz.org/spotify-id-from-metadata/json?artist_name=${q(artist)}&release_name=${q(album)}&track_name=${q(title)}';
-}
-
-/// The Spotify ids in a ListenBrainz answer, first match first, no repeats.
-List<String> spotifyIdsFromListenBrainz(Object? body) {
-  final first = body is List && body.isNotEmpty ? body.first : null;
-  final list = first is Map ? _arr(first['spotify_track_ids']) : const [];
-  return list.where(isSpotifyTrackId).cast<String>().toSet().toList();
-}
 
 /// How long to leave a service alone after it answered [status], from Retry-After (seconds or a date) or X-RateLimit-Reset-In. 60 s for a bare 429, else 0. Capped at a day.
 int backoffMs(int status, {String? retryAfter, String? resetIn, required int nowMs}) {

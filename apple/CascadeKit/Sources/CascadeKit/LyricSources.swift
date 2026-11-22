@@ -436,4 +436,27 @@ public enum Spotify {
         }
         return nil
     }
+
+    /// Any id Spicy Lyrics' /v1/lyrics/{id} takes, normalized, or nil: a
+    /// Spotify track id (22 base62), an ISRC (hyphens out, uppercased, as
+    /// tags and people write them), or an Apple Music track id (digits, up
+    /// to 20). The three shapes cannot collide, so nothing has to say which
+    /// kind it is: 22 base62 is checked first, since an Apple id stops at 20.
+    ///
+    /// Here to read a hand link back: Cascade Server takes all three now, so
+    /// a link made in another Cascade client arrives as any of them. The
+    /// desktop's normalizeSpicyTrackId; keep the two in step.
+    public static func anyTrackId(_ input: String) -> String? {
+        let s = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        if s.wholeMatch(of: /[A-Za-z0-9]{22}/) != nil { return s }
+        if s.wholeMatch(of: /[0-9]{1,20}/) != nil { return s }
+        let isrc = s.replacing(/[\s-]/, with: "").uppercased()
+        return isrc.wholeMatch(of: /[A-Z]{2}[A-Z0-9]{3}[0-9]{7}/) != nil ? isrc : nil
+    }
+
+    /// What to show for a linked id: a Spotify link, or the id itself for an
+    /// ISRC or an Apple Music id, which have no link form to show.
+    public static func linkText(_ id: String) -> String {
+        id.wholeMatch(of: /[A-Za-z0-9]{22}/) != nil ? "https://open.spotify.com/track/\(id)" : id
+    }
 }

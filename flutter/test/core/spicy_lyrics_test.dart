@@ -255,25 +255,8 @@ void main() {
     expect(spicyCacheFresh('x', now), isFalse);
   });
 
-  test('ListenBrainz is asked as the plugin asks it, and read the same way', () {
-    expect(
-      listenBrainzUrl('A & B', '', 'Song/Two'),
-      'https://labs.api.listenbrainz.org/spotify-id-from-metadata/json?artist_name=A+%26+B&release_name=&track_name=Song%2FTwo',
-    );
-    const a = '4uLU6hMCjMI75M1A2tKUQC', b = '7GhIk7Il098yCjg4BQjzvb';
-    expect(
-      spotifyIdsFromListenBrainz([
-        {
-          'spotify_track_ids': [a, 'nope', b, a],
-        },
-        {
-          'spotify_track_ids': ['x'],
-        },
-      ]),
-      [a, b],
-    );
-    expect(spotifyIdsFromListenBrainz([]), isEmpty);
-    expect(spotifyIdsFromListenBrainz({'error': 'x'}), isEmpty);
+  test('a track id is checked, and the lyrics URL is built from it', () {
+    const a = '4uLU6hMCjMI75M1A2tKUQC';
     expect(isSpotifyTrackId(a), isTrue);
     expect(isSpotifyTrackId('../etc/passwd/aaaaaaaaaa'), isFalse);
     expect(spicyLyricsUrl(a), 'https://api.spicylyrics.org/v1/lyrics/$a');

@@ -281,13 +281,13 @@ final class AppState {
         didSet { UserDefaults.standard.set(serverOnlyLyrics, forKey: "cascade.serverOnlyLyrics") }
     }
 
-    /// Songs this user linked to a Spotify track on this device only (item id
-    /// to Spotify id), for a server that does not let them link songs for
-    /// everyone. Sent with each lyrics request. Read back through
-    /// Spotify.trackId, since stored values are not trusted.
+    /// Songs this user linked by hand on this device only (item id to a
+    /// Spotify id, an ISRC or an Apple Music id), for a server that does not
+    /// let them link songs for everyone. Sent with each lyrics request. Read
+    /// back through Spotify.anyTrackId, since stored values are not trusted.
     private(set) var localSpotifyLinks: [String: String] = {
         let raw = UserDefaults.standard.dictionary(forKey: "cascade.spotifyLinks") as? [String: String] ?? [:]
-        return raw.compactMapValues(Spotify.trackId)
+        return raw.compactMapValues(Spotify.anyTrackId)
     }()
 
     func setLocalSpotifyLink(itemId: String, spotifyId: String?) {

@@ -79,19 +79,21 @@ struct SpotifyLinkSheet: View {
     /// What the song is linked to now: this device's link, else the server's.
     private func loadCurrent() async {
         if let localLink {
-            link = "https://open.spotify.com/track/\(localLink)"
+            link = Spotify.linkText(localLink)
             removable = true
             return
         }
         guard serverWide, let client = state.client,
               let current = try? await client.spotifyLink(itemId: track.id) else { return }
-        if let id = current.spotifyId, link.isEmpty { link = "https://open.spotify.com/track/\(id)" }
+        if let id = current.spotifyId, link.isEmpty { link = Spotify.linkText(id) }
         removable = current.manual
     }
 
     private func save() {
-        guard let id = Spotify.trackId(link) else {
-            error = "That is not a Spotify track link. Copy it from Share \u{2192} Copy Song Link."
+        // A link, or a bare id the server takes: a prefilled ISRC or Apple Music
+        // id has to save again unchanged, not read as a bad Spotify link.
+        guard let id = Spotify.trackId(link) ?? Spotify.anyTrackId(link) else {
+            error = "That is not a Spotify track link, an ISRC or an Apple Music track id. Copy a Spotify link from Share \u{2192} Copy Song Link."
             return
         }
         guard serverWide else {
