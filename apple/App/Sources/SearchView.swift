@@ -158,6 +158,80 @@ struct SearchResultsView: View {
     private struct SearchKey: Hashable { var query: String; var movies: [String]; var shows: [String] }
 
     var body: some View {
+        #if os(macOS)
+        macBody.task(id: searchKey) { await search() }
+        #else
+        listBody.task(id: searchKey) { await search() }
+        #endif
+    }
+
+    private var searchKey: SearchKey { SearchKey(query: trimmed, movies: libraries.movieIds, shows: libraries.showIds) }
+
+    #if os(macOS)
+    /// Personality v1, as Flutter's SearchPage: the page header, the songs in the album page's
+    /// rows, then artists, albums, movies and shows as cards.
+    private var macBody: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 0) {
+                CxPageHeader(title: "Search", voice: trimmed.isEmpty
+                             ? "Type in the bar above. Songs, albums, artists, movies and shows."
+                             : "Results for \u{201C}\(trimmed)\u{201D}") {} below: {}
+                if !trimmed.isEmpty {
+                    LoadingOverlay(isLoading: isLoading, error: error, isEmpty: !isLoading && results.isEmpty, skeleton: .rows,
+                                   emptyTitle: "No results for \u{201C}\(trimmed)\u{201D}")
+                }
+                if !results.songs.isEmpty {
+                    CxSectionTitle(title: "Songs", top: 0)
+                    ForEach(Array(results.songs.enumerated()), id: \.element.id) { index, song in
+                        CxTrackRow(track: song, number: index + 1, showsArt: true,
+                                   second: [song.albumArtist ?? song.artists?.first, song.album]
+                                       .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " \u{00B7} ")) {
+                            Task { await state.player?.play(results.songs, startIndex: index) }
+                        }
+                    }
+                }
+                if !results.artists.isEmpty { CxSectionTitle(title: "Artists"); ItemTiles(items: results.artists) }
+                if !results.albums.isEmpty { CxSectionTitle(title: "Albums"); ItemTiles(items: results.albums) }
+                posters("Movies", results.movies)
+                posters("TV Shows", results.shows)
+            }
+            .cxPage()
+        }
+    }
+
+    @ViewBuilder private func posters(_ title: String, _ items: [JfItem]) -> some View {
+        if !items.isEmpty {
+            CxSectionTitle(title: title)
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: posterWidth), spacing: 16)], alignment: .leading, spacing: 20) {
+                // Through the shell, which switches to the video side as it opens one.
+                ForEach(items) { item in ResultLink(item: item) { MacPosterTile(item: item) } }
+            }
+        }
+    }
+    #endif
+
+    private func search() async {
+        guard !trimmed.isEmpty, let client = state.client else {
+            results = SearchResults(); isLoading = false; error = nil
+            return
+        }
+        // Quiet period before firing, and cancellation via .task(id:) itself,
+        // is what keeps a per-keystroke request from hammering the server.
+        try? await Task.sleep(nanoseconds: 300_000_000)
+        if Task.isCancelled { return }
+        isLoading = true
+        await libraries.load(client: client, userId: state.config?.userId)
+        do {
+            results = try await client.searchEverything(trimmed, movieLibraries: libraries.movieIds,
+                                                        showLibraries: libraries.showIds)
+            error = nil
+        } catch {
+            if !Task.isCancelled { self.error = error.localizedDescription }
+        }
+        isLoading = false
+    }
+
+    private var listBody: some View {
         List {
             #if os(tvOS)
             if let field { TextField("Search", text: field) }
@@ -181,26 +255,6 @@ struct SearchResultsView: View {
             section("Artists", results.artists, round: true)
             section("Movies", results.movies, poster: true)
             section("Shows", results.shows, poster: true)
-        }
-        .task(id: SearchKey(query: trimmed, movies: libraries.movieIds, shows: libraries.showIds)) {
-            guard !trimmed.isEmpty, let client = state.client else {
-                results = SearchResults(); isLoading = false; error = nil
-                return
-            }
-            // Quiet period before firing, and cancellation via .task(id:) itself,
-            // is what keeps a per-keystroke request from hammering the server.
-            try? await Task.sleep(nanoseconds: 300_000_000)
-            if Task.isCancelled { return }
-            isLoading = true
-            await libraries.load(client: client, userId: state.config?.userId)
-            do {
-                results = try await client.searchEverything(trimmed, movieLibraries: libraries.movieIds,
-                                                            showLibraries: libraries.showIds)
-                error = nil
-            } catch {
-                if !Task.isCancelled { self.error = error.localizedDescription }
-            }
-            isLoading = false
         }
     }
 

@@ -101,6 +101,8 @@ struct CxMenuChip<Content: View>: View {
 struct FilterChips: View {
     @Binding var filter: BrowseFilter
     let itemType: String
+    /// Movies and TV: the genres and years of the chosen libraries.
+    var libraryIds: [String] = []
     /// Artists: All and Favorites only (see ArtistsView's FilterMenu).
     var favoritesOnly = false
     @Environment(AppState.self) private var state
@@ -113,9 +115,9 @@ struct FilterChips: View {
             CxChip(title: "Favorites", on: filter.favoritesOnly) { filter.favoritesOnly.toggle() }
             if !favoritesOnly { menus }
         }
-        .task(id: state.config?.libraryIds ?? []) {
+        .task(id: (state.config?.libraryIds ?? []) + libraryIds) {
             guard !favoritesOnly else { return }
-            (genres, decades) = await FilterMenu.choices(state: state, itemType: itemType)
+            (genres, decades) = await FilterMenu.choices(state: state, itemType: itemType, libraryIds: libraryIds)
         }
     }
 

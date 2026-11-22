@@ -98,9 +98,66 @@ struct GenreDetailView: View {
     @State private var isLoading = true
     @State private var error: String?
     @State private var isStarting = false
-    @Environment(\.uiScale) private var uiScale
 
     var body: some View {
+        #if os(macOS)
+        macBody
+        #else
+        listBody
+        #endif
+    }
+
+    #if os(macOS)
+    /// Personality v1, as Flutter's GenrePage: the page header with Play and Shuffle, the
+    /// albums, then (as the desktop's genre page) its songs in the album page's rows.
+    private var macBody: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                CxPageHeader(title: genre.name ?? "Genre", voice: albums.isEmpty ? nil : cxCount(albums.count, "album")) {
+                    PillButton("Play", symbol: "play.fill", primary: true) { Task { await start(shuffled: false) } }
+                    PillButton("Shuffle", symbol: "shuffle") { Task { await start(shuffled: true) } }
+                } below: {}
+                .disabled(isStarting || albums.isEmpty)
+                CxSectionTitle(title: "Albums", top: 0)
+                LoadingOverlay(isLoading: isLoading, error: error, isEmpty: albums.isEmpty, skeleton: .grid)
+                ItemTiles(items: albums)
+                if !songs.isEmpty {
+                    CxSectionTitle(title: "Songs")
+                    LazyVStack(spacing: 0) {
+                        ForEach(Array(songs.enumerated()), id: \.element.id) { index, song in
+                            CxTrackRow(track: song, number: index + 1, showsArt: true,
+                                       second: song.albumArtist ?? song.artists?.first) {
+                                Task { await state.player?.play(songs, startIndex: index) }
+                            }
+                        }
+                    }
+                    if moreSongs {
+                        PillButton(isLoadingSongs ? "Loading\u{2026}" : "Show more", symbol: "chevron.down") {
+                            Task { await loadMoreSongs() }
+                        }
+                        .disabled(isLoadingSongs)
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, 16)
+                    }
+                }
+            }
+            .cxPage()
+        }
+        .navigationTitle(genre.name ?? "Genre")
+        .task { await loadPage() }
+    }
+    #endif
+
+    private func loadPage() async {
+        guard let client = state.client else { return }
+        async let firstSongs: Void = loadMoreSongs()
+        do { albums = try await client.albums(limit: 1000, genreId: genre.id) }
+        catch { self.error = error.localizedDescription }
+        isLoading = false
+        await firstSongs
+    }
+
+    private var listBody: some View {
         ScrollView {
             VStack(spacing: 12) {
                 HStack(spacing: 16) {
@@ -118,20 +175,10 @@ struct GenreDetailView: View {
             .browseHeader()
             LoadingOverlay(isLoading: isLoading, error: error, isEmpty: albums.isEmpty, skeleton: .grid)
             ItemTiles(items: albums)
-                #if os(macOS)
-                .padding(.horizontal, 36 * uiScale)
-                #endif
             if !songs.isEmpty { songsSection }
         }
         .navigationTitle(genre.name ?? "Genre")
-        .task {
-            guard let client = state.client else { return }
-            async let firstSongs: Void = loadMoreSongs()
-            do { albums = try await client.albums(limit: 1000, genreId: genre.id) }
-            catch { self.error = error.localizedDescription }
-            isLoading = false
-            await firstSongs
-        }
+        .task { await loadPage() }
     }
 
     private var songsSection: some View {

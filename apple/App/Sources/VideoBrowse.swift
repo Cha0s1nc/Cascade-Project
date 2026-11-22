@@ -149,22 +149,32 @@ struct VideoGridView: View {
                 .browseHeader()
             #endif
             VStack(alignment: .leading, spacing: 8) {
+                #if os(macOS)
+                // Personality v1, as Flutter's VideoGridPage: the page header with its count,
+                // and the sort and filters as chips rather than toolbar menus.
+                CxPageHeader(title: kind == .movies ? "Movies" : "TV Shows", voice: voice) {
+                    SortMenu(fields: [(VideoSortField.name, "Name"), (.year, "Year"), (.added, "Date Added"), (.random, "Random")],
+                             field: $prefs.sort(.name) { $0.defaultDirection }, direction: $prefs.direction, chip: true)
+                } below: {
+                    FilterChips(filter: $prefs.filter, itemType: itemType, libraryIds: ids)
+                }
+                #endif
                 if groups.count > 1 {
                     ForEach(groups) { group in groupView(group) }
                 } else if let only = groups.first, !only.items.isEmpty {
                     grid(only.items)
                 }
             }
+            #if os(macOS)
+            .cxPage()
+            #endif
             if groups.allSatisfy({ $0.items.isEmpty }) {
                 LoadingOverlay(isLoading: loading, error: error, isEmpty: !loading && error == nil)
                     .padding(.top, 40)
                 if !loading, error == nil { Text(emptyReason).foregroundStyle(.secondary).padding() }
             }
         }
-        .navigationTitle(kind == .movies ? "Movies" : "Shows")
-        #if os(macOS)
-        .toolbar { ToolbarItemGroup { controls } }
-        #endif
+        .navigationTitle(kind == .movies ? "Movies" : "TV Shows")
         .refreshable { refreshes += 1 }
         .task(id: LoadKey(ids: ids, field: sortField, direction: prefs.direction,
                           filter: prefs.filter, refreshes: refreshes)) { await load() }
@@ -177,6 +187,15 @@ struct VideoGridView: View {
         return prefs.filter.isActive ? "Nothing matches these filters." : "Nothing here yet."
     }
 
+    #if os(macOS)
+    /// "42 movies", once loaded.
+    private var voice: String? {
+        let total = groups.reduce(0) { $0 + $1.items.count }
+        guard !loading || total > 0 else { return nil }
+        return kind == .movies ? cxCount(total, "movie") : cxCount(total, "show")
+    }
+    #endif
+
     @ViewBuilder private var controls: some View {
         SortMenu(fields: [(VideoSortField.name, "Name"), (.year, "Year"), (.added, "Date Added"), (.random, "Random")],
                  field: $prefs.sort(.name) { $0.defaultDirection }, direction: $prefs.direction)
@@ -187,7 +206,9 @@ struct VideoGridView: View {
         LazyVGrid(columns: [GridItem(.adaptive(minimum: posterWidth), spacing: 16)], spacing: 20) {
             ForEach(items) { PosterTile(item: $0) }
         }
+        #if !os(macOS)
         .padding()
+        #endif
     }
 
     /// One library's header (name and count) over its posters. The posters are
@@ -201,6 +222,20 @@ struct VideoGridView: View {
                 if isCollapsed { now.remove(group.libraryId) } else { now.insert(group.libraryId) }
                 collapsedStored = CollapsedLibraries.encode(now)
             } label: {
+                #if os(macOS)
+                // Flutter's _GroupHeader: the chevron, the library in the section style, its count.
+                HStack(spacing: 6) {
+                    Image(systemName: "chevron.down")
+                        .rotationEffect(.degrees(isCollapsed ? -90 : 0))
+                        .font(.system(size: 13, weight: .semibold)).foregroundStyle(Cx.text2)
+                        .frame(width: 18)
+                    Text(name).cx(.section).foregroundStyle(Cx.text).lineLimit(1)
+                    Text("\(group.items.count)").cx(.small).foregroundStyle(Cx.text3).padding(.leading, 4)
+                    Spacer()
+                }
+                .contentShape(Rectangle())
+                .padding(.top, 18).padding(.bottom, 10)
+                #else
                 HStack {
                     Image(systemName: "chevron.down")
                         .rotationEffect(.degrees(isCollapsed ? -90 : 0))
@@ -213,6 +248,7 @@ struct VideoGridView: View {
                 .contentShape(Rectangle())
                 .padding(.horizontal)
                 .padding(.top, 12)
+                #endif
             }
             .buttonStyle(.plain)
             .accessibilityLabel("\(name), \(group.items.count)")
