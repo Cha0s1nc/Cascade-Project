@@ -103,6 +103,8 @@ public struct JfItem: Codable, Sendable, Identifiable, Hashable {
     /// An artist's biography or an album's notes. Only sent for a single item
     /// (or a list asked for Fields=Overview).
     public var overview: String?
+    /// A movie's or show's taglines, on a single item.
+    public var taglines: [String]?
 
     /// Only on library views (/UserViews) - "music", "movies", etc.
     public var collectionType: String?

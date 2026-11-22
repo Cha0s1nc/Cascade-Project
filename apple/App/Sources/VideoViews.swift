@@ -162,29 +162,58 @@ struct MovieDetailView: View {
     private var item: JfItem { full ?? movie }
 
     var body: some View {
+        content
+            .navigationTitle(item.name ?? "")
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            // The list fetch lacks the streams, which the audio picker needs; and
+            // closing the player changes the resume point, so fetch again then.
+            .task(id: state.videoRevision) {
+                guard let client = state.client else { return }
+                if let fresh = try? await client.item(id: movie.id) { full = fresh }
+            }
+    }
+
+    private func play(resume: Bool) {
+        Task { await state.playVideo([item], audioStreamIndex: audioIndex, resume: resume) }
+    }
+
+    #if os(macOS)
+    /// Personality v1, as Flutter's VideoPage: the detail header with the poster, then the overview.
+    private var content: some View {
+        let started = resumeTicks(for: item) > 0
+        return ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                CxDetailHeader(label: "Movie", title: item.name ?? "", artId: item.id, aspect: 2.0 / 3.0,
+                               meta: videoFacts(item), voice: item.taglines?.first) {
+                    PillButton(started ? "Resume" : "Play", symbol: "play.fill", primary: true) { play(resume: true) }
+                    if started { PillButton("From the Start", symbol: "backward.end.fill") { play(resume: false) } }
+                    CxLikeButton(item: item)
+                    VideoDownloadButton(item: item, kind: .movie)
+                }
+                VStack(alignment: .leading, spacing: 18) {
+                    AudioTrackPicker(item: item, audioIndex: $audioIndex)
+                    if let overview = item.overview { CxOverview(text: overview) }
+                }
+                .cxPage(top: 0)
+            }
+        }
+    }
+    #else
+    private var content: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 VideoHeader(item: item)
-                PlayButtons(item: item, started: resumeTicks(for: item) > 0, audioIndex: $audioIndex) { resume in
-                    Task { await state.playVideo([item], audioStreamIndex: audioIndex, resume: resume) }
-                }
+                PlayButtons(item: item, started: resumeTicks(for: item) > 0, audioIndex: $audioIndex) { play(resume: $0) }
                 VideoDownloadButton(item: item, kind: .movie).padding(.horizontal)
                 if let overview = item.overview { Text(overview).padding(.horizontal) }
             }
             .padding(.bottom)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .navigationTitle(item.name ?? "")
-        #if os(iOS)
-        .navigationBarTitleDisplayMode(.inline)
-        #endif
-        // The list fetch lacks the streams, which the audio picker needs; and
-        // closing the player changes the resume point, so fetch again then.
-        .task(id: state.videoRevision) {
-            guard let client = state.client else { return }
-            if let fresh = try? await client.item(id: movie.id) { full = fresh }
-        }
     }
+    #endif
 }
 
 /// A show: its seasons, and each season's episodes.
@@ -196,8 +225,84 @@ struct SeriesDetailView: View {
     @State private var episodes: [JfItem] = []
     /// Where you left off (continueEpisode): the episode, and where in it to start.
     @State private var resumeAt: (episode: JfItem, startTicks: Int)?
+    /// The show as one item: a list's copy has no overview or taglines.
+    @State private var full: JfItem?
+    private var show: JfItem { full ?? series }
 
     var body: some View {
+        content
+            .navigationTitle(series.name ?? "")
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .task {
+                guard let client = state.client, seasons.isEmpty else { return }
+                async let one = try? await client.item(id: series.id)
+                seasons = (try? await client.seasons(of: series.id)) ?? []
+                full = await one
+                await findWhereLeftOff(client)
+                // Open on that episode's season rather than the first.
+                season = resumeAt?.episode.seasonId ?? seasons.first?.id
+            }
+            // What was watched moves Continue and the progress bars on.
+            .task(id: state.videoRevision) {
+                guard state.videoRevision > 0, let client = state.client, !seasons.isEmpty else { return }
+                await findWhereLeftOff(client)
+                episodes = (try? await client.episodes(of: series.id, season: season)) ?? episodes
+            }
+            .task(id: season) {
+                guard let client = state.client else { return }
+                episodes = (try? await client.episodes(of: series.id, season: season)) ?? []
+            }
+    }
+
+    #if os(macOS)
+    /// Personality v1, as Flutter's VideoPage: the detail header with the poster and where you
+    /// left off, the overview, then the seasons as chips over the chosen season's episodes.
+    private var content: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                CxDetailHeader(label: "TV Show", title: show.name ?? "", artId: series.id, aspect: 2.0 / 3.0,
+                               meta: videoFacts(show), voice: show.taglines?.first) {
+                    if let resumeAt {
+                        PillButton(continueTitle(resumeAt.episode, resumeAt.startTicks), symbol: "play.fill", primary: true) {
+                            Task { await playFromHere(resumeAt.episode, startTicks: resumeAt.startTicks) }
+                        }
+                    }
+                    CxLikeButton(item: show)
+                    VideoDownloadButton(item: series, kind: .series)
+                }
+                VStack(alignment: .leading, spacing: 0) {
+                    if let overview = show.overview { CxOverview(text: overview).padding(.bottom, 12) }
+                    FollowSeriesToggle(seriesId: series.id)
+                    HStack(spacing: 8) {
+                        if seasons.count > 1 {
+                            ForEach(seasons) { s in
+                                CxChip(title: s.name ?? "Season", on: s.id == season) { season = s.id }
+                            }
+                        } else if let only = seasons.first {
+                            Text(only.name ?? "Season").cx(.section).foregroundStyle(Cx.text)
+                        }
+                        Spacer(minLength: 0)
+                        if let current = seasons.first(where: { $0.id == season }) {
+                            VideoDownloadButton(item: seasonItem(current), kind: .season)
+                        }
+                    }
+                    .padding(.top, 24).padding(.bottom, 12)
+                    LazyVStack(alignment: .leading, spacing: 2) {
+                        ForEach(Array(episodes.enumerated()), id: \.element.id) { index, episode in
+                            MacEpisodeRow(episode: episode, played: episode.userData?.played == true) {
+                                Task { await state.playVideo(episodes, startIndex: index) }
+                            }
+                        }
+                    }
+                }
+                .cxPage(top: 0)
+            }
+        }
+    }
+    #else
+    private var content: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 VideoHeader(item: series)
@@ -246,28 +351,8 @@ struct SeriesDetailView: View {
             .padding(.bottom)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .navigationTitle(series.name ?? "")
-        #if os(iOS)
-        .navigationBarTitleDisplayMode(.inline)
-        #endif
-        .task {
-            guard let client = state.client, seasons.isEmpty else { return }
-            seasons = (try? await client.seasons(of: series.id)) ?? []
-            await findWhereLeftOff(client)
-            // Open on that episode's season rather than the first.
-            season = resumeAt?.episode.seasonId ?? seasons.first?.id
-        }
-        // What was watched moves Continue and the progress bars on.
-        .task(id: state.videoRevision) {
-            guard state.videoRevision > 0, let client = state.client, !seasons.isEmpty else { return }
-            await findWhereLeftOff(client)
-            episodes = (try? await client.episodes(of: series.id, season: season)) ?? episodes
-        }
-        .task(id: season) {
-            guard let client = state.client else { return }
-            episodes = (try? await client.episodes(of: series.id, season: season)) ?? []
-        }
     }
+    #endif
 
     /// A season knows its show, for the season's download.
     private func seasonItem(_ season: JfItem) -> JfItem {
@@ -340,11 +425,13 @@ private struct VideoHeader: View {
                     .frame(maxWidth: .infinity)
             }
             Text(item.name ?? "").font(.title.bold()).padding(.horizontal)
-            Text(facts).scaledFont(.subheadline).foregroundStyle(.secondary).padding(.horizontal)
+            Text(videoFacts(item)).scaledFont(.subheadline).foregroundStyle(.secondary).padding(.horizontal)
         }
     }
+}
 
-    private var facts: String {
+/// Year, rating, length and score: "2002 · PG · 161 min · 7.2".
+func videoFacts(_ item: JfItem) -> String {
         var parts: [String] = []
         if let year = item.productionYear { parts.append(String(year)) }
         if let rating = item.officialRating { parts.append(rating) }
@@ -353,7 +440,6 @@ private struct VideoHeader: View {
         }
         if let score = item.communityRating { parts.append(String(format: "%.1f", score)) }
         return parts.joined(separator: " \u{00b7} ")
-    }
 }
 
 /// Play or resume, from the start, and which audio track.
@@ -393,3 +479,79 @@ private struct PlayButtons: View {
         .padding(.horizontal)
     }
 }
+
+#if os(macOS)
+/// A movie's or show's overview, in the page's secondary text at a reading width.
+private struct CxOverview: View {
+    let text: String
+    var body: some View {
+        Text(text).cx(.regular).foregroundStyle(Cx.text2).lineSpacing(4)
+            .frame(maxWidth: 760, alignment: .leading)
+            .textSelection(.enabled)
+    }
+}
+
+/// Which audio track a movie plays with, when it has more than one.
+private struct AudioTrackPicker: View {
+    let item: JfItem
+    @Binding var audioIndex: Int?
+
+    var body: some View {
+        let tracks = VideoPlayback.audioTracks(item)
+        if tracks.count > 1 {
+            HStack(spacing: 10) {
+                Text("Audio").cx(.small).foregroundStyle(Cx.text2)
+                Picker("Audio", selection: $audioIndex) {
+                    Text("Default").tag(Int?.none)
+                    ForEach(tracks, id: \.index) { Text($0.displayTitle ?? $0.language ?? "Track").tag($0.index) }
+                }
+                .labelsHidden().pickerStyle(.menu).fixedSize()
+            }
+        }
+    }
+}
+
+/// An episode (Flutter's episode row, with the Mac's still kept): the still with what was
+/// watched, the code and name, two lines of its overview, the length, and a mark once watched.
+private struct MacEpisodeRow: View {
+    let episode: JfItem
+    /// Apart from `episode` for the reason WatchedBar gives.
+    let played: Bool
+    let play: () -> Void
+    @Environment(\.uiScale) private var zoom
+    @State private var hovering = false
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 14 * zoom) {
+            Button(action: play) {
+                HStack(alignment: .center, spacing: 14 * zoom) {
+                    ArtworkView(itemId: episode.id, size: 160, aspect: 16.0 / 9.0)
+                        .overlay(alignment: .bottom) { WatchedBar(item: episode) }
+                        .overlay { if hovering { PlayMarkOverlay() } }
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text([VideoPlayback.episodeCode(episode), episode.name].compactMap { $0 }.joined(separator: "  "))
+                            .cx(.row).foregroundStyle(hovering ? Cx.accent : Cx.text).lineLimit(1)
+                        if let overview = episode.overview {
+                            Text(overview).cx(.small).foregroundStyle(Cx.text3).lineLimit(2)
+                        }
+                        if let ticks = episode.runTimeTicks, seconds(fromTicks: ticks) >= 60 {
+                            Text("\(Int(seconds(fromTicks: ticks) / 60)) min").cx(.small).foregroundStyle(Cx.text3)
+                        }
+                    }
+                    Spacer(minLength: 8)
+                    if played {
+                        Image(systemName: "checkmark.circle.fill").foregroundStyle(Cx.accent)
+                            .accessibilityLabel("Watched")
+                    }
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            VideoDownloadButton(item: episode, kind: .episode, compact: true)
+        }
+        .padding(10 * zoom)
+        .background(hovering ? Cx.line : .clear, in: RoundedRectangle(cornerRadius: 10))
+        .onHover { on in withAnimation(.easeOut(duration: on ? 0.12 : 0.2)) { hovering = on } }
+    }
+}
+#endif

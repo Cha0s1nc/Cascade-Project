@@ -8,16 +8,17 @@ import CascadeKit
 
 extension View {
     /// A library page's margins, as Home's, grown with View > Zoom.
-    func cxPage(bottom: CGFloat = 40) -> some View { modifier(CxPageMargins(bottom: bottom)) }
+    func cxPage(top: CGFloat = 30, bottom: CGFloat = 40) -> some View { modifier(CxPageMargins(top: top, bottom: bottom)) }
 }
 
 private struct CxPageMargins: ViewModifier {
+    let top: CGFloat
     let bottom: CGFloat
     @Environment(\.uiScale) private var zoom
     func body(content: Content) -> some View {
         content
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 36 * zoom).padding(.top, 30 * zoom).padding(.bottom, bottom * zoom)
+            .padding(.horizontal, 36 * zoom).padding(.top, top * zoom).padding(.bottom, bottom * zoom)
     }
 }
 
@@ -215,6 +216,8 @@ struct CxDetailHeader<Actions: View>: View {
     let title: String
     let artId: String?
     var round = false
+    /// Width over height: 2/3 for a movie's or show's poster.
+    var aspect: CGFloat = 1
     var lead: String?
     var leadId: String?
     var meta = ""
@@ -228,7 +231,7 @@ struct CxDetailHeader<Actions: View>: View {
 
     var body: some View {
         HStack(alignment: .bottom, spacing: 28 * zoom) {
-            ArtworkView(itemId: artId, size: 220)
+            ArtworkView(itemId: artId, size: 220 * min(aspect, 1), aspect: aspect)
                 .clipShape(round ? AnyShape(Circle()) : AnyShape(Rectangle()))
                 .shadow(color: .black.opacity(0.35), radius: 18, y: 8)
             VStack(alignment: .leading, spacing: 0) {
