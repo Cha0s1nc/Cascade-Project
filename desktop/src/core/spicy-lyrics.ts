@@ -224,6 +224,29 @@ export const isSpicyKey = (v: unknown): v is string =>
 /** A Spotify track id: 22 base62 characters. */
 export const isSpotifyTrackId = (v: unknown): v is string => typeof v === 'string' && /^[A-Za-z0-9]{22}$/.test(v)
 
+/**
+ * Any id SpicyLyrics' /v1/lyrics/{id} takes, normalized, or null: a Spotify
+ * track id (22 base62), an ISRC (two letters, three alphanumerics, seven
+ * digits), or an Apple Music track id (digits, up to 20). The three shapes
+ * cannot collide, so no kind has to be declared.
+ *
+ * Here only to read a hand link back: Cascade Server accepts all three now, so
+ * a link made in another Cascade client arrives as any of them. ISRC tags
+ * usually carry hyphens, so they come out before the check, never after: the
+ * id reaches the server's cache as a file name.
+ *
+ * Not for filtering ListenBrainz output or the saved id lists, which are
+ * Spotify ids only; `isSpotifyTrackId` still guards those.
+ */
+export function normalizeSpicyTrackId(v: unknown): string | null {
+  if (typeof v !== 'string') return null
+  const s = v.trim()
+  if (/^[A-Za-z0-9]{22}$/.test(s)) return s          // Spotify, before Apple: 22 digits is not an Apple id
+  if (/^[0-9]{1,20}$/.test(s)) return s              // Apple Music
+  const isrc = s.replace(/[\s-]/g, '').toUpperCase()
+  return /^[A-Z]{2}[A-Z0-9]{3}[0-9]{7}$/.test(isrc) ? isrc : null
+}
+
 /** Ids tried per song, most likely first, as the plugin does. */
 export const MAX_SPICY_CANDIDATES = 3
 

@@ -13628,9 +13628,14 @@ function _applyCascadePluginAvailability() {
 // Drop the cached fetch for a track and, if it is the one playing, reload the panel.
 // itemId defaults to the current track.
 // ── Link a Spotify track (Spicy Lyrics) ───────────────────────────────────────
-// Cascade Server finds a song's Spotify id itself (ListenBrainz); for the songs
-// it cannot, or where it picked the wrong release, a user pastes the link here.
-// Stored on the server for everyone, as saved lyrics are.
+// Cascade Server finds a song's id itself; for the songs it cannot, or where it
+// picked the wrong release, a user pastes the link here. Stored on the server
+// for everyone, as saved lyrics are.
+//
+// The server takes a Spotify id, an ISRC or an Apple Music id on a hand link,
+// so one made in another Cascade client comes back here as any of the three.
+// This build only pastes Spotify links, but it must show and keep the others
+// rather than mangle them into a Spotify URL that parses as nothing.
 
 function _canLinkSpotify() {
   const item = queue[queueIndex]
@@ -13653,7 +13658,7 @@ window.cascade.store.get('spotifyLinks').then(raw => {
   try {
     const obj = typeof raw === 'string' ? JSON.parse(raw) : raw
     for (const [item, id] of Object.entries(obj || {})) {
-      const clean = CascadeCore.parseSpotifyTrackId(id)
+      const clean = CascadeCore.normalizeSpicyTrackId(id)
       if (/^[0-9a-f]{32}$/i.test(item) && clean) _localSpotifyLinks[item] = clean
     }
   } catch {}
@@ -13666,6 +13671,10 @@ function _localSpotifyParam(itemId) {
   const id = _localSpotifyLinks[itemId]
   return id ? `&spotifyId=${encodeURIComponent(id)}` : ''
 }
+
+/** What to show for a linked id: a Spotify link, or the id itself for an ISRC
+ *  or an Apple Music id, which have no link form the server would accept back. */
+const _spotifyLinkValue = (id) => CascadeCore.isSpotifyTrackId(id) ? `https://open.spotify.com/track/${id}` : id
 
 async function openSpotifyLinkModal() {
   document.getElementById('lyrics-source-dropdown').classList.remove('open')
@@ -13685,7 +13694,7 @@ async function openSpotifyLinkModal() {
   input.focus()
   const mine = _localSpotifyLinks[item.Id]
   if (mine) {
-    input.value = `https://open.spotify.com/track/${mine}`
+    input.value = _spotifyLinkValue(mine)
     remove.hidden = false
   }
   if (mine || !_spotifyLinkServerWide) return
@@ -13695,7 +13704,7 @@ async function openSpotifyLinkModal() {
     const r = await jfFetch(`${jf.url}/CascadeServer/SpotifyId/${item.Id}`, { headers: CascadeCore.authHeaders(jf) })
     const cur = r.ok ? await r.json() : null
     if (_spotifyLinkItem !== item) return
-    if (cur?.spotifyId && !input.value) input.value = `https://open.spotify.com/track/${cur.spotifyId}`
+    if (cur?.spotifyId && !input.value) input.value = _spotifyLinkValue(cur.spotifyId)
     remove.hidden = !cur?.manual
   } catch {}
 }
@@ -13724,9 +13733,12 @@ async function _spotifyLinkRequest(method, body) {
 }
 
 document.getElementById('spotify-link-save').addEventListener('click', () => {
-  const id = CascadeCore.parseSpotifyTrackId(document.getElementById('spotify-link-input').value)
+  const raw = document.getElementById('spotify-link-input').value
+  // A link, or a bare id the server takes: a prefilled ISRC or Apple Music id
+  // has to save again unchanged, not read as a bad Spotify link.
+  const id = CascadeCore.parseSpotifyTrackId(raw) ?? CascadeCore.normalizeSpicyTrackId(raw)
   if (!id) {
-    document.getElementById('spotify-link-error').textContent = 'That is not a Spotify track link. Copy it from Share → Copy Song Link.'
+    document.getElementById('spotify-link-error').textContent = 'That is not a Spotify track link, an ISRC or an Apple Music track id. Copy a Spotify link from Share → Copy Song Link.'
     return
   }
   if (!_spotifyLinkServerWide) { _setLocalSpotifyLink(id); return }

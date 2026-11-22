@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   convertSpicyLyrics, spicyCredit, safeCreditUrl, spicyFitsTrack, parseSpotifyTrackId,
-  isSpicyKey, isSpotifyTrackId, spicyCacheFresh, SPICY_CACHE_MS, listenBrainzUrl, spotifyIdsFromListenBrainz, backoffMs, spicyLyricsUrl,
+  isSpicyKey, isSpotifyTrackId, normalizeSpicyTrackId, spicyCacheFresh, SPICY_CACHE_MS, listenBrainzUrl, spotifyIdsFromListenBrainz, backoffMs, spicyLyricsUrl,
 } from '../src/core/spicy-lyrics.ts'
 import { SPICY_LYRICS_DAYS } from '../src/core/offline-index.ts'
 
@@ -201,4 +201,23 @@ test('a rate limit is waited out, never for good', () => {
   assert.equal(backoffMs(404, {}, now), 0)
   assert.equal(backoffMs(429, { retryAfter: '99999999' }, now), 86_400_000, 'capped at a day')
   assert.equal(backoffMs(429, { retryAfter: 'Mon, 19 Oct 2026 11:00:00 GMT' }, now), 0, 'a date already past')
+})
+
+test('a hand link is read back as any id the server takes', () => {
+  const spotify = '4cOdK2wGLETKBW3PvgPWqT'
+  assert.equal(normalizeSpicyTrackId(spotify), spotify)
+  assert.equal(normalizeSpicyTrackId('GBARL9300135'), 'GBARL9300135', 'ISRC')
+  assert.equal(normalizeSpicyTrackId(' gb-arl-93-00135 '), 'GBARL9300135', 'hyphens out, uppercased, before the check')
+  assert.equal(normalizeSpicyTrackId('1438556832'), '1438556832', 'Apple Music')
+  // 22 digits is a Spotify id, not an Apple one: Apple ids stop at 20.
+  assert.equal(normalizeSpicyTrackId('1'.repeat(22)), '1'.repeat(22))
+  assert.equal(normalizeSpicyTrackId('1'.repeat(21)), null, 'neither shape')
+  // Nothing that could reach the server's cache as a path.
+  assert.equal(normalizeSpicyTrackId('../etc/passwd'), null)
+  assert.equal(normalizeSpicyTrackId('GB-ARL/9300135'), null)
+  assert.equal(normalizeSpicyTrackId('GBARL930013'), null, 'ISRC is 12')
+  assert.equal(normalizeSpicyTrackId(''), null)
+  assert.equal(normalizeSpicyTrackId(null), null)
+  // The Spotify-only guards are untouched, they still gate the saved id lists.
+  assert.equal(isSpotifyTrackId('GBARL9300135'), false)
 })
