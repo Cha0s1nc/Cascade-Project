@@ -16,7 +16,9 @@ struct MacRootView: View {
     /// Where a deep link wants to go, and the section it belongs to.
     @State private var pending: (section: MacSection, item: JfItem)?
     /// View > Zoom (MacZoom).
-    @AppStorage(MacZoom.key) private var zoom = 1.0
+    @AppStorage(MacZoom.key) private var storedZoom = 1.0
+    /// View > Zoom on top of the Mac's base size.
+    private var zoom: Double { storedZoom * MacZoom.base }
     @AppStorage(MacNowPlayingUI.layoutKey) private var npLayout = MacNowPlayingUI.Layout.bar
 
     private var libraries: VideoLibrarySelection { state.videoLibraries }

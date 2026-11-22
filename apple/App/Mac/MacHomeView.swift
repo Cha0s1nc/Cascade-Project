@@ -53,7 +53,7 @@ struct MacHomeView: View {
             }
             .padding(.horizontal, 36 * zoom).padding(.top, 30 * zoom).padding(.bottom, 40 * zoom)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .onGeometryChange(for: CGFloat.self) { $0.size.width - 72 * zoom } action: { width = $0 }
+            .onGeometryChange(for: CGFloat.self) { ($0.size.width - 72 * zoom).rounded() } action: { width = $0 }
         }
         .background(alignment: .top) { Cx.wash.frame(height: 360 * zoom).allowsHitTesting(false) }
         .navigationTitle("Home")

@@ -63,7 +63,7 @@ struct ArtistDetailView: View {
                     LoadingOverlay(isLoading: isLoading, error: error, isEmpty: albums.isEmpty, skeleton: .grid)
                 }
                 .padding(.horizontal, 36 * zoom).padding(.bottom, 40 * zoom)
-                .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
+                .onGeometryChange(for: CGFloat.self) { $0.size.width.rounded() } action: { width = $0 }
             }
         }
     }

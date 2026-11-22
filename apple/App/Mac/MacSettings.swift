@@ -103,7 +103,9 @@ struct MacSettingsView: View {
             .scrollContentBackground(.hidden)
             .contentMargins(.horizontal, max(0, (width - 760) / 2), for: .scrollContent)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
+            // Whole points: at a zoom other than 1 the margins nudged the measured width by a
+            // fraction, which moved the margins again, halving toward x.5 forever (a 98% CPU hang).
+            .onGeometryChange(for: CGFloat.self) { $0.size.width.rounded() } action: { width = $0 }
         }
         .tint(Cx.accent)
         .background(Cx.bg)

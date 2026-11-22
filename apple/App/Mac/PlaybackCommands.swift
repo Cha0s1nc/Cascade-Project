@@ -27,6 +27,9 @@ struct PlaybackCommands: Commands {
 enum MacZoom {
     static let key = "cascade.uiScale"
     static let steps: [Double] = [0.85, 1, 1.15, 1.3, 1.5, 1.75]
+    /// What Actual Size draws at: the type tokens and art at 1 read a little small on a Mac screen
+    /// beside Flutter's, so every step is this much bigger. The stored zoom stays the menu's step.
+    static let base = 1.1
 }
 
 private struct ZoomMenuItems: View {
