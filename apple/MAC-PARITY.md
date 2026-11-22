@@ -27,6 +27,7 @@ Status: built / partial / not built.
 - Search including movies and shows, Command-K: built
 - Library pickers, per-kind video libraries, collapsible groups, `sectionMode`: built
 - Context menus item for item: built
+- Cascade Server's linked pictures (`art-links`) for artists and albums without one: built - the shared cover view asks the plugin's ArtLink route after Jellyfin's own 404s, trying Album then Artist since it does not know the kind, and fetches the Deezer or iTunes redirect with a plain session (the server's session keeps redirects on its host). Seen on jellyfin12 on 2026-11-21: the Artists grid fills in. Some artists show Deezer's stock silhouette, which the plugin does not yet recognize (Electron and Flutter show it too)
 - Permissions and admin gating: built
 - Playlists (drag reorder, bulk edit, choke point, Save as a Playlist): built
 - Smart playlists in the desktop's storage shape: built
@@ -48,7 +49,7 @@ Status: built / partial / not built.
 ## Phase 4: windows and integrations
 
 - Miniplayer: partial - floating window, 300 wide, saved height, hover traffic lights, minimize and restore, wheel volume, Lyrics and Up Next tabs, 2.6 s fade; a restyled window rather than a true NSPanel, and none of it seen running yet
-- Lyrics editor and LRC parse and export: built - LRC and enhanced LRC in CascadeKit with tests, word pills, inspector, Stamp mode, own player with speed, plugin save (request shape tested only: the test server has no plugin); no unsaved-changes prompt, not seen running yet
+- Lyrics editor and LRC parse and export: built - LRC and enhanced LRC in CascadeKit with tests, word pills, inspector, Stamp mode, own player with speed, plugin save (request shape tested only: the test server has no plugin); no unsaved-changes prompt, not seen running yet. Electron's editor is the same kind (its own LRC window); Flutter's is the plugin's TTML editor. The plugin answers the Mac's read (no `ttml`) with Enhanced LRC made from any TTML, so saving here over lyrics made in that editor keeps the words and timing but drops background vocals and duet sides, as Electron's does. Checked against the plugin's routes after 1bc27fa by reading them, not by a save
 - Metadata editor: built
 - Discord Rich Presence with iTunes art: built - checked by frame, activity, backoff and throttle tests only, never connected to a real Discord
 - Cha0s Stream control server: built - run against the real port and token, all four routes with and without the token
