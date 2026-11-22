@@ -134,14 +134,18 @@ struct ArtworkView: View {
                 : await client.imageUrl(itemId: itemId, type: imageType, width: pixels, height: Int(CGFloat(pixels) / aspect))
             // A replaced picture asks past every cache, the server's included.
             let fetchUrl = revision == 0 ? url : url.flatMap { URL(string: $0.absoluteString + "&v=\(revision)") }
-            guard let url = fetchUrl,
-                  let (data, response) = try? await ProxyConnection.shared.session(for: url).data(from: url) else { return }
-            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-            // 404 is the normal "this item has no art"; anything else is worth knowing.
-            guard status == 200 else {
-                if status != 404 { debugLog("cover for item \(itemId): HTTP \(status)") }
-                return
+            guard let url = fetchUrl else { return }
+            var got = await Self.fetch(url, itemId: itemId)
+            // No picture in Jellyfin: Cascade Server's linked one, as Electron and Flutter show.
+            // The item's kind is not known here, and the wrong kind's route answers 404 at once.
+            if got == nil, aspect == 1, imageType == "Primary",
+               state.cascadePluginInfo.capabilities.contains("art-links") {
+                for kind in ["Album", "Artist"] {
+                    guard let link = await client.artLinkUrl(kind: kind, itemId: itemId) else { break }
+                    if let hit = await Self.fetch(link, itemId: itemId, outsideRedirect: true) { got = hit; break }
+                }
             }
+            guard let (data, response) = got else { return }
             guard let decoded = PlatformImage(data: data) else {
                 debugLog("cover for item \(itemId) did not decode: \(data.count) bytes, \(response.mimeType ?? "no type")")
                 return
@@ -160,6 +164,28 @@ struct ArtworkView: View {
             loaded = (key, ready)
             if let shapeKey { ArtworkCache.latest.setObject(ready, forKey: shapeKey) }
         }
+    }
+}
+
+extension ArtworkView {
+    /// The body of a 200, or nil. 404 is the normal "this item has no art"; anything else is worth knowing.
+    /// `outsideRedirect`: an art link's redirect to Deezer or iTunes, which the server's session refuses
+    /// (it would carry the proxy headers there), is fetched with a plain session instead.
+    static func fetch(_ url: URL, itemId: String, outsideRedirect: Bool = false) async -> (Data, URLResponse)? {
+        guard let (data, response) = try? await ProxyConnection.shared.session(for: url).data(from: url) else { return nil }
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        if outsideRedirect, (300..<400).contains(status),
+           let location = (response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Location"),
+           let outside = URL(string: location, relativeTo: url)?.absoluteURL, outside.scheme == "https",
+           let (data, response) = try? await URLSession.shared.data(from: outside),
+           (response as? HTTPURLResponse)?.statusCode == 200 {
+            return (data, response)
+        }
+        guard status == 200 else {
+            if status != 404 { debugLog("cover for item \(itemId): HTTP \(status)") }
+            return nil
+        }
+        return (data, response)
     }
 }
 

@@ -308,6 +308,15 @@ public actor JellyfinClient {
             + "?fillHeight=\(height)&fillWidth=\(width)&quality=90&ApiKey=\(config.token)")
     }
 
+    /// Cascade Server's linked picture for an album or artist without one (its
+    /// art-links capability): Jellyfin's own when it has one it did not list,
+    /// else iTunes' cover or Deezer's picture, fetched from them and never stored.
+    /// `kind` is "Album" or "Artist"; the other kind's id answers 404.
+    public func artLinkUrl(kind: String, itemId: String) -> URL? {
+        guard offlineEngine == nil else { return nil }
+        return URL(string: "\(config.url)/CascadeServer/ArtLink/\(kind)/\(itemId)?ApiKey=\(config.token)")
+    }
+
     public func imageUrl(itemId: String, size: Int = 600) -> URL? {
         guard offlineEngine == nil else { return nil }
         return URL(string: "\(config.url)/Items/\(itemId)/Images/Primary"
