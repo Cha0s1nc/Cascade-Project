@@ -1,10 +1,12 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using Jellyfin.Plugin.CascadeServer.Explicit;
 using Jellyfin.Plugin.CascadeServer.LyricStore;
 using Jellyfin.Plugin.CascadeServer.Status;
 using MediaBrowser.Common.Configuration;
@@ -162,32 +164,120 @@ public class LyricsFetcher
     private const int MaxSpicyCandidates = 3;
 
     /// <summary>
-    /// SpicyLyrics, when a key is set and the item resolves to Spotify ids (see
-    /// <see cref="SpotifyIdLookup"/>): the cached raw response, or a fresh one (then cached
-    /// for 25 days). A song has one id per release, so up to <see cref="MaxSpicyCandidates"/>
-    /// are tried and the first whose sync fits this file's length wins; a sync made for a
-    /// longer release drifts (a 190.7s sync against a 186.6s file ran 8s late by the end).
-    /// A hand-linked id is taken as it is, and so is <paramref name="requestedId"/>, a user's
-    /// own link sent with the request (validated, used only for this call, never stored).
-    /// <c>null</c> otherwise, including on any miss.
+    /// SpicyLyrics, when a key is set and the item resolves to an id it accepts: the cached raw
+    /// response, or a fresh one (then cached for 25 days). <c>null</c> on any miss, so the
+    /// caller falls through to its other sources.
+    ///
+    /// The id is resolved in stages, stopping at the first that answers:
+    /// <list type="number">
+    /// <item><paramref name="requestedId"/>, a link this user sent with the request, or a hand
+    /// link stored for everyone. Taken as it is, with no length check: the user asserted it.</item>
+    /// <item>The ids already remembered for this item. An entry is terminal, so if they all
+    /// miss the song is left alone rather than resolved again on every play.</item>
+    /// <item>The ISRC in the file's own tags, which names the recording exactly. Only a probe:
+    /// its answer carries <c>Body.id</c>, the Spotify id, which is what gets remembered, so the
+    /// cache stays Spotify-keyed and later plays take stage 2.</item>
+    /// <item><c>GET /v1/tracks/search</c> on title, artist, album and length, taking only an
+    /// <c>exact</c>-tier match plus that recording's other releases, nearest length first.</item>
+    /// </list>
+    ///
+    /// Stages 3 and 4 run only for an item with nothing remembered, or whose last lookup found
+    /// nothing over <see cref="SpotifyIdStore.MissRetry"/> ago. Every automatic answer passes
+    /// <see cref="SpicyFitsTrack"/>, because an id can name a longer release whose sync drifts
+    /// (a 190.7s sync against a 186.6s file ran 8s late by the end), and an ISRC in particular
+    /// names one release of a recording, which a remaster is often tagged with.
     /// </summary>
     public async Task<string?> TrySpicyAsync(BaseItem item, HttpClient client, CancellationToken ct, string? requestedId = null)
     {
         if (item is not Audio audio || string.IsNullOrWhiteSpace(Plugin.Config.SpicyLyricsSecretKey)) return null;
-        var (ids, manual) = SpicyLyricsClient.IsValidTrackId(requestedId)
-            ? ([requestedId!], true)
-            : await SpotifyIdLookup.FindAsync(audio, client, _appPaths, ct);
+
+        // 1. A link sent with this request, used for this call only and never stored.
+        if (SpicyIds.NormalizeLookupId(requestedId) is { } asked)
+        {
+            var result = await TrySpicyByIdAsync(asked, client, respectRecentMiss: true, ct);
+            return result is { Status: SpicyLyricsStatus.Hit, RawJson: { } raw } ? raw : null;
+        }
+
+        var entry = SpotifyIdStore.Get(_appPaths, audio.Id);
+
+        // 2. What is already known, including a hand link set for the whole server.
+        if (entry is { Ids.Length: > 0 })
+        {
+            return await FirstFittingAsync(audio, entry.Ids, client, entry.Manual, ct);
+        }
+
+        // Nothing known. A recent lookup that found nothing is left alone for a week.
+        if (entry is not null && DateTime.UtcNow - entry.CheckedUtc < SpotifyIdStore.MissRetry) return null;
+
+        // 3. The ISRC off the file's tags, as a probe for the Spotify id.
+        if (await TryIsrcAsync(audio, client, ct) is { } byIsrc) return byIsrc;
+
+        // 4. Their search.
+        var found = await _spicy.SearchAsync(
+            client, Plugin.Config.SpicyLyricsSecretKey, audio.Name ?? string.Empty,
+            audio.Artists?.FirstOrDefault() ?? audio.AlbumArtists?.FirstOrDefault() ?? string.Empty,
+            audio.Album ?? string.Empty, DurationSec(audio), ct);
+        if (found is null) return null;   // could not ask: remember nothing, try again next play
+        SpotifyIdStore.Set(_appPaths, audio.Id, new([.. found], false, DateTime.UtcNow));
+        return found.Count > 0 ? await FirstFittingAsync(audio, found, client, manual: false, ct) : null;
+    }
+
+    /// <summary>
+    /// The first of <paramref name="ids"/> SpicyLyrics has a sync for that fits this file, or
+    /// <c>null</c>. A hand link skips the length check and is never reordered.
+    /// </summary>
+    private async Task<string?> FirstFittingAsync(
+        Audio audio, IReadOnlyList<string> ids, HttpClient client, bool manual, CancellationToken ct)
+    {
         foreach (var id in ids.Take(MaxSpicyCandidates))
         {
             var result = await TrySpicyByIdAsync(id, client, respectRecentMiss: true, ct);
             if (result.Status != SpicyLyricsStatus.Hit || result.RawJson is null) continue;
             if (!manual && !SpicyFitsTrack(result.RawJson, audio)) continue;
-            if (id != requestedId) SpotifyIdLookup.Prefer(_appPaths, audio.Id, id);
+            if (!manual) SpotifyIdStore.Prefer(_appPaths, audio.Id, id);
             return result.RawJson;
         }
 
         return null;
     }
+
+    /// <summary>
+    /// Asks by the ISRC in the file's tags, which Jellyfin itself does not read or store, and
+    /// on a usable answer remembers the Spotify id it carries.
+    ///
+    /// The answer is cached under that Spotify id, not under the ISRC, so there is one cache
+    /// entry per track and later plays go through stage 2. A sync that does not fit the file is
+    /// dropped and nothing is remembered, since a remembered id is terminal and would fail for
+    /// good; search gets its turn instead, and may find a release this one did not.
+    /// </summary>
+    private async Task<string?> TryIsrcAsync(Audio audio, HttpClient client, CancellationToken ct)
+    {
+        if (audio.Path is null || SpicyIds.NormalizeIsrc(TagReader.Read(audio.Path).Isrc) is not { } isrc)
+        {
+            return null;
+        }
+
+        var result = await _spicy.FetchAsync(client, Plugin.Config.SpicyLyricsSecretKey, isrc, ct);
+        if (result.Status != SpicyLyricsStatus.Hit || result.RawJson is null) return null;
+        if (!SpicyFitsTrack(result.RawJson, audio))
+        {
+            _logger.LogDebug("SpicyLyrics by ISRC {Isrc} is a different release of {Name}; trying search", isrc, audio.Name);
+            return null;
+        }
+
+        // Body.id came from a third party and becomes a cache file name, so it is checked.
+        if (SpicyIds.SpotifyIdOf(result.RawJson) is { } spotifyId)
+        {
+            _spicyCache.Put(spotifyId, result.RawJson);
+            SpotifyIdStore.Set(_appPaths, audio.Id, new([spotifyId], false, DateTime.UtcNow));
+        }
+
+        return result.RawJson;
+    }
+
+    /// <summary>The file's length in seconds, or <c>null</c> when Jellyfin does not know it.</summary>
+    private static double? DurationSec(Audio item)
+        => item.RunTimeTicks is > 0 ? TimeSpan.FromTicks(item.RunTimeTicks.Value).TotalSeconds : null;
 
     /// <summary>Slack for rounding and trailing silence, as in Cascade's spicyFitsTrack.</summary>
     private const double SpicyEndToleranceSec = 1.5;
@@ -214,28 +304,33 @@ public class LyricsFetcher
     }
 
     /// <summary>
-    /// SpicyLyrics for a known Spotify track id, through the same 25-day cache. The admin
-    /// test route passes <paramref name="respectRecentMiss"/> false, so testing the same
-    /// track twice asks again instead of being told "missed a moment ago".
+    /// SpicyLyrics for a known id (a Spotify id, an ISRC or an Apple Music id), through the
+    /// same 25-day cache. The admin test route passes <paramref name="respectRecentMiss"/>
+    /// false, so testing the same track twice asks again instead of being told "missed a
+    /// moment ago".
+    ///
+    /// Only a miss SpicyLyrics stated is remembered. A request that could not be made at all,
+    /// such as one refused for a bad key or missing scope, rate limited, or failed at their
+    /// end, leaves no mark: otherwise one bad key would blacklist every song played for a day.
     /// </summary>
     public async Task<SpicyLyricsResult> TrySpicyByIdAsync(
-        string spotifyId, HttpClient client, bool respectRecentMiss, CancellationToken ct)
+        string trackId, HttpClient client, bool respectRecentMiss, CancellationToken ct)
     {
         var key = Plugin.Config.SpicyLyricsSecretKey;
         if (string.IsNullOrWhiteSpace(key)) return new(SpicyLyricsStatus.NotConfigured);
-        if (!SpicyLyricsClient.IsValidTrackId(spotifyId)) return new(SpicyLyricsStatus.Miss);
+        if (SpicyIds.NormalizeLookupId(trackId) is not { } id) return new(SpicyLyricsStatus.Miss);
 
-        if (_spicyCache.Get(spotifyId) is { } cached) return new(SpicyLyricsStatus.Hit, cached);
-        if (respectRecentMiss && SpicyLyricsCache.IsRecentMiss(spotifyId)) return new(SpicyLyricsStatus.Miss);
+        if (_spicyCache.Get(id) is { } cached) return new(SpicyLyricsStatus.Hit, cached);
+        if (respectRecentMiss && SpicyLyricsCache.IsRecentMiss(id)) return new(SpicyLyricsStatus.Miss);
 
-        var result = await _spicy.FetchAsync(client, key, spotifyId, ct);
+        var result = await _spicy.FetchAsync(client, key, id, ct);
         if (result.Status == SpicyLyricsStatus.Hit && result.RawJson is not null)
         {
-            _spicyCache.Put(spotifyId, result.RawJson);
+            _spicyCache.Put(id, result.RawJson);
         }
         else if (result.Status == SpicyLyricsStatus.Miss)
         {
-            SpicyLyricsCache.MarkMiss(spotifyId);
+            SpicyLyricsCache.MarkMiss(id);
         }
 
         return result;

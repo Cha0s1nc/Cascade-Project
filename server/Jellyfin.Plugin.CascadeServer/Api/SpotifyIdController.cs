@@ -40,7 +40,11 @@ public class SpotifyIdController : ControllerBase
     private IActionResult NotAllowed()
         => StatusCode(StatusCodes.Status403Forbidden, new { error = "Only administrators and users they allow can link songs for the whole server." });
 
-    /// <summary>What the song is linked to: <c>{ spotifyId, manual }</c>, id null when nothing.</summary>
+    /// <summary>
+    /// What the song is linked to: <c>{ spotifyId, manual }</c>, id null when nothing. The id
+    /// may be a Spotify id, an ISRC or an Apple Music id; the field keeps its name so older
+    /// clients still read it.
+    /// </summary>
     /// <param name="itemId">The Jellyfin item ID.</param>
     /// <response code="200">The current mapping.</response>
     /// <response code="404">No such song.</response>
@@ -54,11 +58,11 @@ public class SpotifyIdController : ControllerBase
         return Ok(new { spotifyId = entry is { Ids.Length: > 0 } ? entry.Ids[0] : null, manual = entry?.Manual ?? false });
     }
 
-    /// <summary>Links the song to a Spotify track id.</summary>
+    /// <summary>Links the song to a Spotify track id, an ISRC or an Apple Music track id.</summary>
     /// <param name="itemId">The Jellyfin item ID.</param>
-    /// <param name="dto">The 22-character Spotify track id (the client parses links).</param>
+    /// <param name="dto">The id (the client parses links).</param>
     /// <response code="204">Linked.</response>
-    /// <response code="400">Not a Spotify track id.</response>
+    /// <response code="400">Not an id SpicyLyrics takes.</response>
     /// <response code="403">This user may not link songs for the whole server.</response>
     /// <response code="404">No such song.</response>
     [HttpPost]
@@ -69,12 +73,17 @@ public class SpotifyIdController : ControllerBase
     public async Task<IActionResult> Set([FromRoute] Guid itemId, [FromBody] SpotifyIdDto dto)
     {
         if (!await SpotifyLinkPermission.ServerWideAsync(_auth, HttpContext)) return NotAllowed();
-        // Trust boundary: the id becomes a file name in the SpicyLyrics cache, so only the
-        // exact Spotify id shape gets through.
-        if (!SpicyLyricsClient.IsValidTrackId(dto?.SpotifyId)) return BadRequest(new { error = "Not a Spotify track id." });
+        // Trust boundary: the id becomes a file name in the SpicyLyrics cache, so only an
+        // exact Spotify id, ISRC or Apple Music id shape gets through, normalized first (an
+        // ISRC is usually written with hyphens).
+        if (SpicyIds.NormalizeLookupId(dto?.SpotifyId) is not { } id)
+        {
+            return BadRequest(new { error = "Not a Spotify track id, an ISRC or an Apple Music track id." });
+        }
+
         if (_libraryManager.GetItemById(itemId) is not Audio) return NotFound();
-        SpotifyIdStore.Set(_appPaths, itemId, new([dto!.SpotifyId!], true, DateTime.UtcNow));
-        SpicyLyricsCache.ClearMiss(dto.SpotifyId!);
+        SpotifyIdStore.Set(_appPaths, itemId, new([id], true, DateTime.UtcNow));
+        SpicyLyricsCache.ClearMiss(id);
         return NoContent();
     }
 
@@ -96,6 +105,6 @@ public class SpotifyIdController : ControllerBase
 /// <summary>Body of POST /CascadeServer/SpotifyId/{itemId}.</summary>
 public class SpotifyIdDto
 {
-    /// <summary>Gets or sets the Spotify track id.</summary>
+    /// <summary>Gets or sets the id: a Spotify track id, an ISRC or an Apple Music track id.</summary>
     public string? SpotifyId { get; set; }
 }

@@ -40,10 +40,10 @@ public class SpicyLyricsTestController : ControllerBase
         _logger = logger;
     }
 
-    /// <summary>Fetches one track by Spotify id and says exactly why when it cannot.</summary>
-    /// <param name="spotifyId">A Spotify track id (22 base62 characters).</param>
+    /// <summary>Fetches one track by id and says exactly why when it cannot.</summary>
+    /// <param name="spotifyId">A Spotify track id, an ISRC or an Apple Music track id.</param>
     /// <response code="200">The same shape the lyrics route sends with <c>syllable=true</c>.</response>
-    /// <response code="400">Not a Spotify track id.</response>
+    /// <response code="400">Not an id SpicyLyrics takes.</response>
     /// <response code="404">SpicyLyrics had nothing, or refused; <c>upstreamStatus</c> says which.</response>
     /// <response code="409">No SpicyLyrics key is set in the plugin's settings.</response>
     [HttpGet]
@@ -53,9 +53,13 @@ public class SpicyLyricsTestController : ControllerBase
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<IActionResult> Get([FromRoute] string spotifyId)
     {
-        if (!SpicyLyricsClient.IsValidTrackId(spotifyId))
+        if (SpicyIds.NormalizeLookupId(spotifyId) is null)
         {
-            return BadRequest(new { error = "invalid_track_id", message = "A Spotify track id is 22 letters and digits." });
+            return BadRequest(new
+            {
+                error = "invalid_track_id",
+                message = "Give a Spotify track id (22 letters and digits), an ISRC (12 characters) or an Apple Music track id (digits).",
+            });
         }
 
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(20));
@@ -72,7 +76,18 @@ public class SpicyLyricsTestController : ControllerBase
                 source = "spicylyrics",
                 spicy = JsonDocument.Parse(result.RawJson).RootElement.Clone(),
             }),
-            _ => NotFound(new { error = "miss", upstreamStatus = result.HttpStatus, message = "SpicyLyrics had nothing for this id, or refused the request (see upstreamStatus; none means a network error or a Retry-After pause)." }),
+            SpicyLyricsStatus.Unavailable => StatusCode(StatusCodes.Status503ServiceUnavailable, new
+            {
+                error = result.ErrorCode ?? "unavailable",
+                upstreamStatus = result.HttpStatus,
+                message = "SpicyLyrics could not be asked, which says nothing about this track: check the key and its scopes, or wait out a rate limit. No upstreamStatus means a network error or a Retry-After pause.",
+            }),
+            _ => NotFound(new
+            {
+                error = result.ErrorCode ?? "miss",
+                upstreamStatus = result.HttpStatus,
+                message = "SpicyLyrics has nothing for this id.",
+            }),
         };
     }
 }

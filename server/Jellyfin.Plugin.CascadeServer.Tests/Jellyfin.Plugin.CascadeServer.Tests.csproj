@@ -25,6 +25,7 @@
     <Compile Include="..\Jellyfin.Plugin.CascadeServer\ArtLinks\ArtMatch.cs" Link="Pure\ArtMatch.cs" />
     <Compile Include="..\Jellyfin.Plugin.CascadeServer\LyricFormat\TtmlLyrics.cs" Link="Pure\TtmlLyrics.cs" />
     <Compile Include="..\Jellyfin.Plugin.CascadeServer\LyricFormat\EditorSessions.cs" Link="Pure\EditorSessions.cs" />
+    <Compile Include="..\Jellyfin.Plugin.CascadeServer\LyricFetch\SpicyIds.cs" Link="Pure\SpicyIds.cs" />
   </ItemGroup>
 
 </Project>

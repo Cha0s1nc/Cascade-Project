@@ -32,7 +32,7 @@ Jellyfin picks the right build for your server version by itself, and offers upd
 Open **Dashboard → Plugins → Cascade Server**.
 
 - **Don't write fetched lyrics next to media files.** Keep fetched lyrics in Jellyfin's data folder instead of writing `.slrc`/`.lrc`/`.txt` files beside your audio.
-- **SpicyLyrics secret key.** Optional. Get a key starting with `sl_sk_` from [developers.spicylyrics.org](https://developers.spicylyrics.org). Songs are matched to their Spotify track through ListenBrainz, which covers most popular music. SpicyLyrics results are kept for at most 25 days, as its terms require, and never written as files.
+- **SpicyLyrics secret key.** Optional. Get a key starting with `sl_sk_` from [developers.spicylyrics.org](https://developers.spicylyrics.org). Songs are matched to their track by the ISRC in the file's own tags where there is one, which names the recording exactly, and otherwise by Spicy Lyrics' own search on title, artist, album and length, which only accepts a match it rates `exact`. Either way the match has to agree with the file's length, so a sync made for a longer release is not used. If both come up empty, link the song by hand in Cascade. SpicyLyrics results are kept for at most 25 days, as its terms require, and never written as files.
 - **Who can link songs to Spotify for everyone.** When the automatic match finds nothing, or picks the wrong release, a Cascade user can paste the song's Spotify link. Links from administrators and the users ticked here apply to the whole server. Everyone else's links stay on their own computer and only affect what they see.
 
 - **Server style.** A Cascade preset (Theme panel, Share a look, Copy as text) that everyone on the server gets: as a default for the settings they never changed, or enforced over their own. Dark or light mode and the font always stay the user's.
@@ -43,10 +43,9 @@ Open **Dashboard → Plugins → Cascade Server**.
 
 - **Cascade's icon**, shown at the top of the plugin's dashboard page, is embedded from `shared/assets` at build time. Like all of Cascade's artwork it is not GPL: see [shared/assets/LICENSE](../shared/assets/LICENSE). A fork of the plugin has to remove it.
 
-- **ListenBrainz Labs** matches songs to Spotify tracks. It is an experimental service; if it changes or goes away, automatic matching stops working and Cascade falls back to its other lyric sources. Hand-made links keep working.
-- **SpicyLyrics**, **Kugou** and **LRCLIB** are third-party services with their own terms and availability.
+- **SpicyLyrics**, **Kugou** and **LRCLIB** are third-party services with their own terms and availability. Finding which track a song is now goes to SpicyLyrics too, through its own search, so nothing but SpicyLyrics is asked about a song's identity. Only songs people actually play are looked up, never the library in a pass.
 - **Deezer** and **iTunes Search** (explicit marks), **MusicBrainz** (album barcodes) and **TIDAL** (animated covers, with your own developer app) are third-party services too. Each is optional, and the plugin works without them.
-- **TagLibSharp** reads the advisory and barcode tags from audio files. Jellyfin ships it, so the plugin uses Jellyfin's copy (version 2.3.0).
+- **TagLibSharp** reads the advisory, barcode and ISRC tags from audio files. Jellyfin ships it, so the plugin uses Jellyfin's copy (version 2.3.0).
 
 ## Building
 

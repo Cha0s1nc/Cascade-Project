@@ -52,8 +52,8 @@ public class InfoController : ControllerBase
     private const string LyricsEditor = "lyrics-editor";
 
     // Only while a SpicyLyrics key is set: GET ?syllable=true can then return a raw
-    // SpicyLyrics body (Spotify ids resolve through SpotifyIdLookup), and
-    // /CascadeServer/SpotifyId/{itemId} links a song to a Spotify track by hand.
+    // SpicyLyrics body (the track is resolved in LyricsFetcher.TrySpicyAsync), and
+    // /CascadeServer/SpotifyId/{itemId} links a song to a track by hand.
     private const string Syllable = "syllable";
     private const string SpotifyLink = "spotify-link";
 

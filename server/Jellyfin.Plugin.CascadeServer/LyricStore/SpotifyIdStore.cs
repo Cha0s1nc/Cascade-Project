@@ -2,6 +2,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text.Json;
 using MediaBrowser.Common.Configuration;
 
@@ -20,6 +21,16 @@ public static class SpotifyIdStore
 
     /// <summary>How long a lookup that found nothing is trusted before asking again.</summary>
     public static readonly TimeSpan MissRetry = TimeSpan.FromDays(7);
+
+    /// <summary>
+    /// When the resolver last changed. Entries older than this were found by a resolver that
+    /// no longer exists (ListenBrainz Labs, until 2026-11-21) and are dropped on load, because
+    /// an entry is terminal: an empty one would block the new lookup for <see cref="MissRetry"/>
+    /// on exactly the songs the change fixes, and an entry whose ids all miss would never be
+    /// looked up again at all. Hand links are kept, whenever they were made. The cost of
+    /// dropping one is a single lookup the next time the song plays.
+    /// </summary>
+    public static readonly DateTime ResolverEpoch = new(2026, 11, 21, 0, 0, 0, DateTimeKind.Utc);
 
     private static readonly object FileLock = new();
     private static ConcurrentDictionary<Guid, Entry>? _entries;
@@ -42,6 +53,17 @@ public static class SpotifyIdStore
         if (Load(appPaths).TryRemove(itemId, out _)) Save();
     }
 
+    /// <summary>
+    /// Moves the id that worked to the front, so the next play tries it first. Leaves a hand
+    /// link alone: its order is the user's.
+    /// </summary>
+    public static void Prefer(IApplicationPaths appPaths, Guid itemId, string trackId)
+    {
+        var entry = Get(appPaths, itemId);
+        if (entry is null || entry.Manual || entry.Ids.Length == 0 || entry.Ids[0] == trackId) return;
+        Set(appPaths, itemId, entry with { Ids = [trackId, .. entry.Ids.Where(i => i != trackId)] });
+    }
+
     private static ConcurrentDictionary<Guid, Entry> Load(IApplicationPaths appPaths)
     {
         if (_entries is not null) return _entries;
@@ -55,7 +77,12 @@ public static class SpotifyIdStore
                 if (File.Exists(_path))
                 {
                     var raw = JsonSerializer.Deserialize<Dictionary<Guid, Entry>>(File.ReadAllText(_path));
-                    foreach (var (k, v) in raw ?? []) if (v?.Ids is not null) loaded[k] = v;
+                    foreach (var (k, v) in raw ?? [])
+                    {
+                        if (v?.Ids is null) continue;
+                        if (!v.Manual && v.CheckedUtc < ResolverEpoch) continue;   // an older resolver's answer
+                        loaded[k] = v;
+                    }
                 }
             }
             catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
