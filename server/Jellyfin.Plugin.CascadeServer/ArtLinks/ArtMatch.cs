@@ -69,10 +69,20 @@ public static partial class ArtMatch
     public static bool DeezerError(JsonElement root) => root.ValueKind == JsonValueKind.Object && root.TryGetProperty("error", out _);
 
     /// <summary>
-    /// Deezer's placeholder for an artist without a picture has an empty image id
-    /// (<c>.../images/artist//1000x1000-...</c>).
+    /// Deezer's image id for "no picture" (the md5 of an empty string). Its CDN redirects every
+    /// artist without a picture here and serves a gray silhouette, even for ids the API hands out
+    /// that look ordinary, so only following the picture's link tells them apart.
     /// </summary>
-    public static bool HasPicture(string? url) => !string.IsNullOrWhiteSpace(url) && !url.Contains("/artist//", StringComparison.Ordinal);
+    public const string NoImageId = "d41d8cd98f00b204e9800998ecf8427e";
+
+    /// <summary>
+    /// Whether <paramref name="url"/> is a real picture: not Deezer's old placeholder with an empty
+    /// image id (<c>.../images/artist//1000x1000-...</c>) nor its <see cref="NoImageId"/> silhouette.
+    /// </summary>
+    public static bool HasPicture(string? url) =>
+        !string.IsNullOrWhiteSpace(url)
+        && !url.Contains("/artist//", StringComparison.Ordinal)
+        && !url.Contains($"/artist/{NoImageId}/", StringComparison.Ordinal);
 
     /// <summary>Same act by name: equal after <see cref="TitleMatch.Clean"/>.</summary>
     public static bool SameName(string? a, string? b)

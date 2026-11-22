@@ -37,6 +37,18 @@ public class ArtMatchTests
     }
 
     [Fact]
+    public void DeezersNoImageSilhouetteIsNoPicture()
+    {
+        // Seen 2026-11-21: "22december" and "AHUB" have ordinary-looking ids whose CDN link
+        // redirects here, absolute or relative.
+        Assert.False(ArtMatch.HasPicture($"https://cdn-images.dzcdn.net/images/artist/{ArtMatch.NoImageId}/1000x1000-000000-80-0-0.jpg"));
+        Assert.False(ArtMatch.HasPicture($"/images/artist/{ArtMatch.NoImageId}/1000x1000-000000-80-0-0.jpg"));
+        Assert.True(ArtMatch.HasPicture("https://cdn-images.dzcdn.net/images/artist/66c1e15679704beb01c912eb6668de14/1000x1000-000000-80-0-0.jpg"));
+        var list = ArtMatch.DeezerArtists(Json($$"""{ "data": [ { "id": 1, "name": "AHUB", "picture_xl": "https://cdn-images.dzcdn.net/images/artist/{{ArtMatch.NoImageId}}/1000x1000-000000-80-0-0.jpg" } ] }"""));
+        Assert.Null(list[0].Picture);
+    }
+
+    [Fact]
     public void TwoSameNamedArtistsAreToldApartByTheirAlbums()
     {
         var candidates = ArtMatch.DeezerArtists(Json(DeezerSearch));

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net;
 using System.Net.Http;
 using System.Text.Json;
 using System.Threading;
@@ -111,6 +112,13 @@ public sealed class ArtLinkService
             .Where(c => c.Picture is not null && ArtMatch.SameName(c.Name, artist.Name))
             .Take(3)
             .ToList();
+        var real = new List<ArtMatch.DeezerArtist>();
+        foreach (var c in candidates)
+        {
+            if (await RealPictureAsync(client, c.Picture!)) real.Add(c);
+        }
+
+        candidates = real;
         if (candidates.Count == 0) return null;
 
         var ours = _library.GetItemList(new InternalItemsQuery
@@ -142,6 +150,21 @@ public sealed class ArtLinkService
         var term = Uri.EscapeDataString($"{artist} {album.Name}".Trim());
         using var doc = await GetAsync(client, ItunesGate, $"https://itunes.apple.com/search?entity=album&limit=10&term={term}");
         return ArtMatch.PickAlbumArt(album.Name, artist, tracks > 0 ? tracks : null, ArtMatch.ItunesAlbums(doc.RootElement));
+    }
+
+    /// <summary>
+    /// Whether a Deezer picture link is a real picture: its CDN redirects artists without one to the
+    /// <see cref="ArtMatch.NoImageId"/> silhouette, which nothing in the API marks. Only the headers
+    /// are asked for. Trouble other than a 404 throws, so it is retried rather than kept as a miss.
+    /// </summary>
+    private static async Task<bool> RealPictureAsync(HttpClient client, string url)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Head, url);
+        using var response = await client.SendAsync(request);
+        if (response.StatusCode == HttpStatusCode.NotFound) return false;
+        if (response.Headers.Location is { } location) return ArtMatch.HasPicture(location.OriginalString);
+        response.EnsureSuccessStatusCode();
+        return ArtMatch.HasPicture(response.RequestMessage?.RequestUri?.AbsoluteUri ?? url);
     }
 
     private static async Task<JsonDocument> GetAsync(HttpClient client, RateGate gate, string url)
