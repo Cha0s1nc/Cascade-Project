@@ -115,13 +115,17 @@ private struct SongsTable: View {
     @State private var order: [KeyPathComparator<JfItem>] = []
 
     var body: some View {
+        // Read here, not in the cells: Font.cxBody reads MacTheme, and an observation made inside a
+        // Table cell (built outside this view's graph on macOS 27) crashed the app in AttributeGraph
+        // when Songs was left for another page.
+        let font = Font.cxBody(13 * uiScale)
         Table(items, selection: $selection, sortOrder: $order) {
             TableColumn("") { track in
-                cell(track) { PlayingIndicator(itemId: track.id) }
+                cell(track, font) { PlayingIndicator(itemId: track.id) }
             }
             .width(24)
             TableColumn("Title", value: \.songTitle) { track in
-                cell(track) {
+                cell(track, font) {
                     HStack(spacing: 8) {
                         ArtworkView(itemId: track.albumId ?? track.id, size: 32)
                         Text(track.songTitle).lineLimit(1).explicitMark(track.id)
@@ -130,23 +134,23 @@ private struct SongsTable: View {
             }
             .width(min: 160, ideal: 280)
             TableColumn("Artist", value: \.songArtist) { track in
-                cell(track) { Text(track.songArtist).lineLimit(1).foregroundStyle(.secondary) }
+                cell(track, font) { Text(track.songArtist).lineLimit(1).foregroundStyle(.secondary) }
             }
             .width(min: 100, ideal: 180)
             TableColumn("Album", value: \.songAlbum) { track in
-                cell(track) { Text(track.songAlbum).lineLimit(1).foregroundStyle(.secondary) }
+                cell(track, font) { Text(track.songAlbum).lineLimit(1).foregroundStyle(.secondary) }
             }
             .width(min: 100, ideal: 200)
             TableColumn("Date Added", value: \.songAdded) { track in
-                cell(track) { Text(shortDate(track.dateCreated)).foregroundStyle(.tertiary) }
+                cell(track, font) { Text(shortDate(track.dateCreated)).foregroundStyle(.tertiary) }
             }
             .width(min: 90, ideal: 110)
             TableColumn("Last Played", value: \.songPlayed) { track in
-                cell(track) { Text(shortDate(track.userData?.lastPlayedDate)).foregroundStyle(.tertiary) }
+                cell(track, font) { Text(shortDate(track.userData?.lastPlayedDate)).foregroundStyle(.tertiary) }
             }
             .width(min: 90, ideal: 110)
             TableColumn("Time") { track in
-                cell(track) {
+                cell(track, font) {
                     Text(track.runTimeTicks.map { clock(seconds(fromTicks: $0)) } ?? "")
                         .monospacedDigit().foregroundStyle(.tertiary)
                 }
@@ -189,14 +193,14 @@ private struct SongsTable: View {
     /// One cell's content, filling the cell so the whole row answers a
     /// double-click, not only the text. The right-click menu is the table's
     /// own (above), which knows the selection.
-    private func cell<Content: View>(_ track: JfItem, @ViewBuilder _ content: () -> Content) -> some View {
+    private func cell<Content: View>(_ track: JfItem, _ font: Font, @ViewBuilder _ content: () -> Content) -> some View {
         // Handed down explicitly: Table builds its cells outside this view's
         // environment on macOS 27, so ArtworkView and PlayingIndicator found
         // no AppState and the app stopped on a fatal error opening Songs.
         content()
             .environment(state)
             .environment(\.uiScale, uiScale)
-            .font(.cxBody(13 * uiScale))
+            .font(font)
             // The desktop's row: 45 pt with a 32 pt cover (SONG_ROW_H in
             // renderer.js), not the table's default single tight line.
             .frame(maxWidth: .infinity, minHeight: 37 * uiScale, alignment: .leading)
