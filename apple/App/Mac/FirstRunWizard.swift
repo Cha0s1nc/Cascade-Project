@@ -106,44 +106,61 @@ struct FirstRunWizardView: View {
     @Environment(AppState.self) private var state
     let model: FirstRunModel
 
-    private var heading: String {
-        switch model.mode {
-        case .videoIntro: "Movies and TV"
-        case .wizard: model.isFirstRun ? "Set up Cascade" : "New since your last update"
+    /// The caps line over the title, as Flutter's: where you are in it.
+    private var caps: String {
+        let lead = model.mode == .videoIntro ? "Movies and TV" : model.isFirstRun ? "Welcome to Cascade" : "New since your last update"
+        return model.steps.count > 1 ? "\(lead) \u{00B7} \(model.index + 1) of \(model.steps.count)" : lead
+    }
+
+    /// Each step's title and voice line (Flutter's _steps).
+    private var heading: (title: String, voice: String) {
+        if model.mode == .videoIntro {
+            return ("Your libraries", "This server has more than one movie or TV library. Pick the ones Cascade should show.")
+        }
+        switch model.step {
+        case .libraries: return ("Your libraries", "Pick what Cascade shows. You can change this in Settings > Library.")
+        case .crossfade: return ("Crossfade", "Fade each song into the next, or play them back to back.")
+        case .quality: return ("Streaming quality", "Above this, the server converts files down. Original plays them as they are.")
+        case .theme: return ("Theme", "Dark or light, and whether the album art picks the accent.")
+        case .translation: return ("Lyrics translation", "Lyrics in other languages, translated on this Mac.")
+        case .telemetry: return ("Usage counts", "Whether Cascade tells us, anonymously, that it is being used.")
         }
     }
 
+    /// Personality v1, as Flutter's first-run dialog: the caps line, the step's title and voice
+    /// line, its settings as the settings cards, then Back, Skip and Next on the panel.
     var body: some View {
         VStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(heading).font(.title2.bold())
-                Text(model.mode == .videoIntro
-                     ? "This server has more than one movie or TV library. Pick the ones Cascade should show. All of it lives in Settings afterwards."
-                     : "Your current settings are already filled in, so skipping changes nothing. All of it lives in Settings afterwards.")
-                    .scaledFont(.callout).foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 0) {
+                Text(caps).cx(.caps).foregroundStyle(Cx.text3)
+                Text(heading.title).cx(.title).foregroundStyle(Cx.text).padding(.top, 8)
+                Text(heading.voice).cx(.voice).foregroundStyle(Cx.text2).padding(.top, 4)
                     .fixedSize(horizontal: false, vertical: true)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding([.horizontal, .top], 24).padding(.bottom, 12)
-            Divider()
+            .padding([.horizontal, .top], 24).padding(.bottom, 4)
             stepView
+                .formStyle(CxFormStyle())
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 .id(model.step)
-            Divider()
-            HStack {
-                if model.steps.count > 1 {
-                    Text("Step \(model.index + 1) of \(model.steps.count)").scaledFont(.caption).foregroundStyle(.secondary)
+            HStack(spacing: 8) {
+                if model.index > 0 {
+                    Button("Back") { model.index -= 1 }.buttonStyle(.plain).foregroundStyle(Cx.text2)
                 }
                 Spacer()
                 // Skippable at any point, not just from the last step: what
                 // an earlier step already changed went through its real setter
                 // and stays changed; a step never reached keeps today's value.
-                Button("Skip") { model.finish() }
-                Button(model.isLast ? "Done" : "Next") { model.next() }.keyboardShortcut(.defaultAction)
+                PillButton("Skip", symbol: "forward.end") { model.finish() }
+                PillButton(model.isLast ? (model.isFirstRun ? "Start listening" : "Done") : "Next",
+                           symbol: model.isLast ? "checkmark" : "arrow.right", primary: true) { model.next() }
+                    .keyboardShortcut(.defaultAction)
             }
-            .padding(.horizontal, 24).padding(.vertical, 14)
+            .padding(.horizontal, 24).padding(.vertical, 16)
         }
-        .frame(width: 520, height: 520)
+        .frame(width: 520, height: 540)
+        .background(Cx.surface)
+        .tint(Cx.accent)
         .interactiveDismissDisabled(false)
     }
 
@@ -154,14 +171,14 @@ struct FirstRunWizardView: View {
         case .quality: QualityStep()
         case .theme: ThemeStep()
         case .translation: TranslationStep()
-        case .telemetry: Form { TelemetrySection() }.formStyle(.grouped)
+        case .telemetry: Form { TelemetrySection() }
         }
     }
 }
 
 private struct LibrariesStep: View {
     var body: some View {
-        Form { LibrarySettingsSection() }.formStyle(.grouped)
+        Form { LibrarySettingsSection() }
     }
 }
 
@@ -190,7 +207,6 @@ private struct CrossfadeStep: View {
                 Text("Blends the end of each song into the next. Off keeps albums gapless.")
             }
         }
-        .formStyle(.grouped)
         .onAppear {
             // Seeded from the live value, never from a default.
             seconds = Int(state.player?.crossfadeSeconds ?? Double(UserDefaults.standard.integer(forKey: "cascade.crossfadeSeconds")))
@@ -216,7 +232,6 @@ private struct QualityStep: View {
                 Text("Below the original, the server converts to AAC at that rate. Applies from the next track.")
             }
         }
-        .formStyle(.grouped)
         .onAppear { quality = state.player?.streamingQuality ?? StreamingQuality(stored: UserDefaults.standard.object(forKey: StreamingQuality.wifiKey)) }
     }
 }
@@ -244,7 +259,6 @@ private struct ThemeStep: View {
                 Text("The Theme button in the toolbar has gradients, fonts and the lyrics look.")
             }
         }
-        .formStyle(.grouped)
         .onAppear { let t = SettingsActions.theme(); mode = t.mode; albumArt = t.albumArt }
     }
 }
@@ -263,7 +277,6 @@ private struct TranslationStep: View {
                 Text("Adds a Translate button to lyrics in other languages. Translation happens on this Mac with the languages macOS has installed (System Settings, General, Language & Region, Translation Languages). Nothing about your songs is sent anywhere.")
             }
         }
-        .formStyle(.grouped)
         .onAppear { enabled = SettingsActions.lyricsTranslationEnabled }
     }
 }

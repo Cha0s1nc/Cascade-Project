@@ -65,7 +65,8 @@ private struct MiniplayerBody: View {
             }
             .frame(width: geo.size.width, height: geo.size.height)
         }
-        .background { VisualEffectBackground(material: .hudWindow).ignoresSafeArea() }
+        // Personality v1, as Flutter's MiniplayerView: the panel color, always dark.
+        .background { Cx.surface.ignoresSafeArea() }
         .background(MiniplayerWindowSetup(hovering: hovering))
         .environment(\.colorScheme, .dark)
         .environment(\.lyricInk, .white)
@@ -110,7 +111,7 @@ private struct MiniplayerBody: View {
     /// title takes the room.
     private var compact: some View {
         HStack(spacing: 12) {
-            cover.frame(width: 64, height: 64).clipShape(RoundedRectangle(cornerRadius: 6))
+            cover(64).frame(width: 64, height: 64).clipShape(RoundedRectangle(cornerRadius: 10))
                 .onTapGesture { dismissWindow(id: "miniplayer") }
                 .padding(.leading, 14)
             VStack(alignment: .leading, spacing: 4) {
@@ -129,7 +130,7 @@ private struct MiniplayerBody: View {
         let coverHeight = min(MiniSize.width, height)
         return VStack(spacing: 0) {
             ZStack(alignment: .bottom) {
-                cover
+                cover(MiniSize.width)
                     .frame(width: MiniSize.width, height: MiniSize.width)
                     .frame(height: coverHeight)
                     .clipped()
@@ -163,23 +164,24 @@ private struct MiniplayerBody: View {
 
     // MARK: Pieces
 
-    private var cover: some View {
-        ArtworkView(itemId: artId, size: 300, fillsFrame: true)
-            .overlay { CoverSliceOverlay(player: player, size: 300).clipShape(ProportionalRoundedRectangle()) }
+    /// Sized for where it is drawn, so the empty cover's note fits the bar's small one.
+    private func cover(_ side: CGFloat) -> some View {
+        ArtworkView(itemId: artId, size: side, fillsFrame: true)
+            .overlay { CoverSliceOverlay(player: player, size: side).clipShape(ProportionalRoundedRectangle()) }
     }
 
     private func titleBlock(size: CGFloat) -> some View {
         VStack(alignment: .leading, spacing: 1) {
-            Text(item?.name ?? "Not playing").font(.system(size: size, weight: .semibold)).lineLimit(1)
+            Text(item?.name ?? "Nothing playing").font(.cxBody(size + 1, .semibold)).foregroundStyle(Cx.text).lineLimit(1)
             Text(item?.albumArtist ?? item?.artists?.first ?? "")
-                .font(.system(size: size - 3)).foregroundStyle(.secondary).lineLimit(1)
+                .font(.cxBody(size - 1)).foregroundStyle(Cx.text2).lineLimit(1)
         }
     }
 
     private var likeButton: some View {
         Button(action: toggleFavorite) {
             Image(systemName: isFavorite ? "heart.fill" : "heart")
-                .foregroundStyle(isFavorite ? MacTheme.favorite : .white)
+                .foregroundStyle(isFavorite ? Cx.like : .white)
                 .font(.system(size: 16))
         }
         .buttonStyle(.hover)
@@ -191,8 +193,13 @@ private struct MiniplayerBody: View {
         HStack(spacing: size + 4) {
             Button { Task { await player.previous() } } label: { Image(systemName: "backward.fill") }
                 .accessibilityLabel("Previous")
+            // The player bar's solid accent button with dark ink.
             Button { player.togglePlayPause() } label: {
-                Image(systemName: player.isPaused ? "play.fill" : "pause.fill").font(.system(size: size + 6))
+                Image(systemName: player.isPaused ? "play.fill" : "pause.fill")
+                    .font(.system(size: size - 1, weight: .bold))
+                    .foregroundStyle(Cx.ink)
+                    .frame(width: size * 2.2, height: size * 2.2)
+                    .background(Cx.accent, in: Circle())
             }
             .buttonStyle(.plain)
             .accessibilityLabel(player.isPaused ? "Play" : "Pause")
@@ -227,12 +234,12 @@ private struct MiniplayerBody: View {
 
     private func tabButton(_ title: String, _ value: Tab) -> some View {
         Button { tab = value } label: {
-            Text(title).font(.caption.weight(.semibold))
-                .padding(.horizontal, 10).padding(.vertical, 3)
-                .background(Capsule().fill(tab == value ? Color.white.opacity(0.2) : .clear))
+            Text(title).font(.cxBody(11, .semibold))
+                .padding(.horizontal, 10).padding(.vertical, 4)
+                .background(Capsule().fill(tab == value ? Cx.accentTint : .clear))
         }
         .buttonStyle(.plain)
-        .foregroundStyle(tab == value ? .white : .secondary)
+        .foregroundStyle(tab == value ? Cx.accent : Cx.text2)
         .accessibilityAddTraits(tab == value ? .isSelected : [])
     }
 
@@ -270,9 +277,9 @@ private struct MiniplayerBody: View {
                             ArtworkView(itemId: track.albumId ?? track.id, size: 32).frame(width: 32, height: 32)
                                 .clipShape(RoundedRectangle(cornerRadius: 4))
                             VStack(alignment: .leading, spacing: 0) {
-                                Text(track.name ?? "").font(.system(size: 12, weight: .medium)).lineLimit(1)
+                                Text(track.name ?? "").font(.cxBody(12, .medium)).foregroundStyle(Cx.text).lineLimit(1)
                                 Text(track.albumArtist ?? track.artists?.first ?? "")
-                                    .font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
+                                    .font(.cxBody(11)).foregroundStyle(Cx.text3).lineLimit(1)
                             }
                             Spacer(minLength: 0)
                         }
@@ -346,8 +353,8 @@ private struct MiniProgress: View {
         return VStack(spacing: 2) {
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
-                    Capsule().fill(.white.opacity(0.25))
-                    Capsule().fill(.white).frame(width: geo.size.width * min(1, max(0, shown / duration)))
+                    Capsule().fill(Cx.track)
+                    Capsule().fill(Cx.accent).frame(width: geo.size.width * min(1, max(0, shown / duration)))
                 }
                 .frame(height: 4)
                 .frame(maxHeight: .infinity)
@@ -363,7 +370,7 @@ private struct MiniProgress: View {
             HStack {
                 Text(clock(shown)); Spacer(); Text(clock(player.durationSeconds))
             }
-            .font(.system(size: 10).monospacedDigit()).foregroundStyle(.secondary)
+            .font(.cxBody(10).monospacedDigit()).foregroundStyle(Cx.text3)
         }
         .accessibilityElement()
         .accessibilityLabel("Position")

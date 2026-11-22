@@ -33,21 +33,22 @@ struct SignInView: View {
 
     var body: some View {
         #if os(macOS)
-        // A grouped form in a centered column under the app's name, rather than
-        // a full-window list stretched edge to edge.
-        VStack(spacing: 14) {
-            VStack(spacing: 6) {
-                Image(nsImage: NSApp.applicationIconImage).resizable().frame(width: 72, height: 72)
-                Text("Cascade").font(.largeTitle.bold())
-                Text("Sign in to your Jellyfin server").foregroundStyle(.secondary)
+        // Personality v1, as Flutter's SignIn: the icon and a title over a narrow column, the
+        // form as the settings cards, on the page's background.
+        VStack(spacing: 0) {
+            VStack(spacing: 16) {
+                Image(nsImage: NSApp.applicationIconImage).resizable().frame(width: 64, height: 64)
+                Text("Sign in to Jellyfin").font(.display(24, .bold)).foregroundStyle(Cx.text)
             }
-            .padding(.top, 28)
+            .padding(.top, 36).padding(.bottom, 8)
             form
-                .formStyle(.grouped)
-                .frame(maxWidth: 460)
+                .formStyle(CxFormStyle())
+                .frame(maxWidth: 440)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .frame(minWidth: 520, minHeight: 600)
+        .background(Cx.bg)
+        .tint(Cx.accent)
         #else
         form
         #endif
@@ -114,20 +115,23 @@ struct SignInView: View {
                 }
             }
 
-            Section("Account") {
-                // Content types, so Passwords and other managers offer the saved login.
-                TextField("Username", text: $username)
-                    .autocorrectionDisabled()
-                    .noAutocaps()
-                    .textContentType(.username)
-                    .submitLabel(.next)
-                    .onSubmit { passwordFocused = true }
-                SecureField("Password", text: $password)
-                    .textContentType(.password)
-                    .submitLabel(.go)
-                    .focused($passwordFocused)
-                    .onSubmit(submit)
+            #if os(macOS)
+            // The error and Sign In under the account card, as the card style has no loose rows.
+            Section {
+                accountFields
+            } header: {
+                Text("Account")
+            } footer: {
+                VStack(alignment: .leading, spacing: 12) {
+                    if let error { Text(error).foregroundStyle(.red) }
+                    PillButton(busy ? "Signing In\u{2026}" : "Sign In", symbol: "arrow.right", primary: true, action: submit)
+                        .disabled(busy || server.isEmpty || username.isEmpty)
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                }
+                .padding(.top, 6)
             }
+            #else
+            Section("Account") { accountFields }
             if let error {
                 // Shown, not swallowed. A sign-in that fails quietly is
                 // indistinguishable from one that worked.
@@ -135,6 +139,7 @@ struct SignInView: View {
             }
             Button(busy ? "Signing In\u{2026}" : "Sign In", action: submit)
                 .disabled(busy || server.isEmpty || username.isEmpty)
+            #endif
             if !disclaimer.isEmpty {
                 Section {
                     Text(disclaimer).scaledFont(.footnote).foregroundStyle(.secondary)
@@ -170,6 +175,21 @@ struct SignInView: View {
             }
             #endif
         }
+    }
+
+    /// Content types, so Passwords and other managers offer the saved login.
+    @ViewBuilder private var accountFields: some View {
+        TextField("Username", text: $username)
+            .autocorrectionDisabled()
+            .noAutocaps()
+            .textContentType(.username)
+            .submitLabel(.next)
+            .onSubmit { passwordFocused = true }
+        SecureField("Password", text: $password)
+            .textContentType(.password)
+            .submitLabel(.go)
+            .focused($passwordFocused)
+            .onSubmit(submit)
     }
 
     /// Read from across the room on a TV, at arm's length on a phone.
