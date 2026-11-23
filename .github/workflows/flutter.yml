@@ -131,10 +131,12 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # Without recommends libmpv-dev is a fraction of the packages, and with
-      # man-db's index rebuild off the install does not stall on its trigger.
+      # With recommends this was 343 packages (219 MB), mostly GStreamer and
+      # video driver extras, and the runner's Ubuntu mirror can be slow enough
+      # to take over 10 minutes for them. man-db's index rebuild is off too: it
+      # adds a minute or more after a big install and nothing reads it here.
       - name: Install the build dependencies
-        timeout-minutes: 10
+        timeout-minutes: 20
         run: |
           echo 'set man-db/auto-update false' | sudo debconf-communicate >/dev/null
           sudo rm -f /var/lib/man-db/auto-update
