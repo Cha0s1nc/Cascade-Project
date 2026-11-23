@@ -34,6 +34,7 @@ env:
 jobs:
   check:
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: flutter
@@ -54,6 +55,13 @@ jobs:
     needs: check
     if: github.event_name != 'pull_request'
     runs-on: windows-latest
+    # A first build compiles smtc_windows' Rust crates from scratch.
+    timeout-minutes: 45
+    env:
+      # Off C:\Users\...\AppData: cargokit's resolve_symlinks.ps1 follows the
+      # plugin's symlink into the pub cache and cannot Get-Item the hidden
+      # AppData folder on the way.
+      PUB_CACHE: D:\pub-cache
     defaults:
       run:
         working-directory: flutter
@@ -116,16 +124,22 @@ jobs:
     # The glibc here (2.39) is the oldest the build runs on: Ubuntu 24.04,
     # Debian 13 and newer.
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     defaults:
       run:
         working-directory: flutter
     steps:
       - uses: actions/checkout@v7
 
+      # Without recommends libmpv-dev is a fraction of the packages, and with
+      # man-db's index rebuild off the install does not stall on its trigger.
       - name: Install the build dependencies
+        timeout-minutes: 10
         run: |
+          echo 'set man-db/auto-update false' | sudo debconf-communicate >/dev/null
+          sudo rm -f /var/lib/man-db/auto-update
           sudo apt-get update
-          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev libmpv-dev libwebkit2gtk-4.1-dev libsoup-3.0-dev
+          sudo apt-get install -y --no-install-recommends clang cmake ninja-build pkg-config libgtk-3-dev libmpv-dev libwebkit2gtk-4.1-dev libsoup-3.0-dev
 
       - name: Install Flutter
         shell: bash
