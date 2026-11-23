@@ -25,7 +25,7 @@ Written 2026-09-30 against `dev` at `2f0882d`. Line numbers are approximate and 
 |---|---|---|
 | 0, 1 | License decision and text, first `CONTRIBUTING.md` | done (`2f0882d`) |
 | 2 | Merge cascade-swift into `apple/` with history | done (`b11a780`, `8eb5e9a`) |
-| 3 | Swift CI workflow (tests + iOS/tvOS builds) | done (`.github/workflows/apple.yml`, runs on the `xcode-27` image) |
+| 3 | Swift CI workflow (tests + iOS/tvOS builds) | done (`.github/workflows/apple.yml`, runs on the `xcode-27` image); since 2026-11-23 it runs the CascadeKit tests on pull requests only and builds on a manual run, not on every push |
 | **4** | **Updater reads `versions.json`** | cloud agent |
 | **5** | **`CHANGELOG.md` format, parser, backfill** | cloud agent |
 | 6 | `build.yml` rework: markers, platforms, carry-over, Apple job | done (`d520dbb`, `9d979d4`, tested with manual drafts) |
@@ -118,7 +118,7 @@ Written 2026-10-03. The native Mac app (`CascadeMac` in `apple/`) ships beside t
 
 Written 2026-11-23. The Flutter app in `flutter/` ships its Windows and Linux builds from 2.5, beside Electron, until 3.0 retires Electron.
 
-- **A fifth platform, `flutter`**, with the file pattern `Cascade-Flutter-*`, built only when named like `mac` (`EXPLICIT_ONLY`): `[desktop, flutter]` in a release marker, or "flutter" in a manual run. Changes under `flutter/` build nothing in `build.yml` until that list is emptied; `flutter.yml` checks every change to `flutter/` regardless.
+- **A fifth platform, `flutter`**, with the file pattern `Cascade-Flutter-*`, built only when named like `mac` (`EXPLICIT_ONLY`): `[desktop, flutter]` in a release marker, or "flutter" in a manual run. Changes under `flutter/` build nothing in `build.yml` until that list is emptied. Pushes to dev run nothing; a pull request touching `flutter/` gets `flutter analyze` and `flutter test` only.
 - **No version in the file names**: `Cascade-Flutter-Setup-x64.exe`, `Cascade-Flutter-amd64.deb`, `Cascade-Flutter-linux-x64.tar.gz`. Every Electron updater in users' hands takes the first `.exe` or `.deb` carrying the release's version, so it can never be handed one of these. The version is in `versions.json` and the mirror's `flutter/<version>/` folder. `pickInstaller` and `desktopBuildOf` also skip `Cascade-Flutter-*` outright.
 - **The same places that drop `Cascade-Native-*` from desktop drop `Cascade-Flutter-*`**, since desktop's `*.exe` and `*.deb` match them: the release job's copy and carry-over in `build.yml`, and the mirror download in `publish.yml`. `test/release-plan.test.ts` checks all three.
 - **`build-flutter`** calls `.github/workflows/flutter.yml` with the version: `flutter analyze` and `flutter test`, then Windows (`flutter build windows`, the Visual C++ runtime DLLs copied in, Inno Setup from `flutter/packaging/windows/cascade.iss`) and Linux on ubuntu-24.04 (`flutter/packaging/linux/package.sh`). The app's displayed version comes from `--dart-define=CASCADE_VERSION`. Unsigned, like Electron's.

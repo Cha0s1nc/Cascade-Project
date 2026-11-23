@@ -1,13 +1,11 @@
 name: Apple
 
-# Tests and builds the iOS, tvOS and Mac apps in apple/ on every change to it.
-# Builds only, unsigned: releasing the Apple app is phase 6 of
-# docs/release-pipeline-plan.md.
+# A pull request touching apple/ gets the CascadeKit tests; a manual run also
+# builds the iOS and tvOS apps, unsigned. Pushes to dev run nothing: the
+# maintainer builds locally, and the release builds are build.yml's
+# build-apple (a [BETA] or release naming apple).
 
 on:
-  push:
-    branches: ['dev']
-    paths: ['apple/**', 'shared/fixtures/**', 'shared/tuning-defaults.json', 'shared/assets/**', 'flutter/assets/fonts/**', '.github/workflows/apple.yml']
   pull_request:
     branches: ['dev']
     paths: ['apple/**', 'shared/fixtures/**', 'shared/tuning-defaults.json', 'shared/assets/**', 'flutter/assets/fonts/**', '.github/workflows/apple.yml']
@@ -45,15 +43,18 @@ jobs:
         run: swift test
 
       - name: Generate the Xcode project
+        if: github.event_name != 'pull_request'
         run: xcodegen generate
 
       - name: Build for iOS
+        if: github.event_name != 'pull_request'
         run: >
           xcodebuild -project Cascade.xcodeproj -scheme CascadeiOS
           -destination 'generic/platform=iOS Simulator'
           CODE_SIGNING_ALLOWED=NO build
 
       - name: Build for tvOS
+        if: github.event_name != 'pull_request'
         run: >
           xcodebuild -project Cascade.xcodeproj -scheme CascadetvOS
           -destination 'generic/platform=tvOS Simulator'

@@ -502,8 +502,8 @@ jobs:
   # ── Flutter (Windows and Linux) ────────────────────────────────────────────
   # The Flutter app, built only when named ([flutter], or "flutter" in a
   # manual run) until 2.5: EXPLICIT_ONLY in desktop/src/core/release-plan.ts.
-  # flutter.yml does the work, the same workflow that checks every change to
-  # flutter/; its installers are unsigned, like the Electron ones.
+  # flutter.yml does the work (on pull requests it only analyzes and tests);
+  # its installers are unsigned, like the Electron ones.
   build-flutter:
     needs: setup
     if: needs.setup.outputs.flutter == 'true'

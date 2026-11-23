@@ -1,17 +1,16 @@
 name: Flutter
 
-# Checks and builds the Flutter app in flutter/ on every change to it, and
-# makes its Windows installer and Linux packages. build.yml calls this too
-# (build-flutter) with the release's version, so a release's Flutter files
-# come from the same steps. Unsigned, like the Electron installers.
+# Builds the Flutter app in flutter/ and makes its Windows installer and
+# Linux packages, unsigned like the Electron installers. build.yml calls this
+# (build-flutter) with the release's version for a [BETA] or release naming
+# flutter; a manual run here makes a test build. A pull request touching
+# flutter/ gets only the check job (analyze and test): the maintainer builds
+# locally, so pushes to dev run nothing here.
 #
-# No concurrency group: in a call from build.yml it would share one with a
-# push to dev and could cancel a release's build.
+# No concurrency group: in a call from build.yml it would share one with
+# other runs and could cancel a release's build.
 
 on:
-  push:
-    branches: ['dev']
-    paths: ['flutter/**', 'desktop/assets/linux-icons/**', 'shared/assets/installer-license.txt', '.github/workflows/flutter.yml']
   pull_request:
     branches: ['dev']
     paths: ['flutter/**', 'desktop/assets/linux-icons/**', 'shared/assets/installer-license.txt', '.github/workflows/flutter.yml']
@@ -53,6 +52,7 @@ jobs:
 
   windows:
     needs: check
+    if: github.event_name != 'pull_request'
     runs-on: windows-latest
     defaults:
       run:
@@ -112,6 +112,7 @@ jobs:
 
   linux:
     needs: check
+    if: github.event_name != 'pull_request'
     # The glibc here (2.39) is the oldest the build runs on: Ubuntu 24.04,
     # Debian 13 and newer.
     runs-on: ubuntu-24.04
