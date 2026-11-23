@@ -60,7 +60,7 @@ Future<void> _windows(Player p) async {
     if (shown != s.id) {
       if (shown == null) check(smtc.enableSmtc(), 'enable');
       shown = s.id;
-      check(smtc.updateMetadata(MusicMetadata(title: s.title, artist: s.artist, album: s.album, albumArtist: s.artist, thumbnail: s.image)), 'metadata');
+      check(smtc.updateMetadata(MusicMetadata(title: s.title, artist: s.artist, album: s.album, albumArtist: s.searchArtist, thumbnail: s.image)), 'metadata');
     }
     if (wasPlaying != p.playing) {
       wasPlaying = p.playing;

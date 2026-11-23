@@ -130,7 +130,7 @@ class LyricsFetcher {
 
     Future<Lyrics?> kugou() async {
       final search = Uri.parse(
-        'http://lyrics.kugou.com/search?ver=1&man=yes&client=pc&keyword=${Uri.encodeComponent('${s.artist} - ${s.title}')}&duration=${s.seconds * 1000}',
+        'http://lyrics.kugou.com/search?ver=1&man=yes&client=pc&keyword=${Uri.encodeComponent('${s.searchArtist} - ${s.title}')}&duration=${s.seconds * 1000}',
       );
       final sr = await _http.get(search).timeout(_timeout);
       if (sr.statusCode != 200) return null;
@@ -148,7 +148,7 @@ class LyricsFetcher {
     }
 
     Future<Lyrics?> lrclib() async {
-      final q = {'artist_name': s.artist, 'track_name': s.title, 'album_name': s.album, 'duration': '${s.seconds}'};
+      final q = {'artist_name': s.searchArtist, 'track_name': s.title, 'album_name': s.album, 'duration': '${s.seconds}'};
       final res = await _http.get(Uri.https('lrclib.net', '/api/get', q), headers: _agent).timeout(_timeout);
       if (res.statusCode != 200) return null;
       final d = jsonDecode(res.body) as Map;

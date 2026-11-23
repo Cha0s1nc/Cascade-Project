@@ -338,4 +338,17 @@ void main() {
     expect(j.album({...bare, 'Type': 'Playlist'}).image, isNull, reason: 'a playlist is no album to look up');
     expect(j.album({...bare, 'ImageTags': {'Primary': 'tag'}}).image, contains('/Items/a1/Images/Primary'), reason: 'its own picture wins');
   });
+
+  test('a song shows its own artists, and keeps the album artist for searches', () {
+    final j = Jellyfin('https://jf.test', 'D', token: 't');
+    final feat = j.song({'Id': 's1', 'Name': 'Hall of Fame', 'AlbumArtist': 'The Script', 'Artists': ['The Script', 'will.i.am']});
+    expect(feat.artist, 'The Script, will.i.am');
+    expect(feat.searchArtist, 'The Script');
+    final comp = j.song({'Id': 's2', 'Name': 'x', 'AlbumArtist': 'Various Artists', 'Artists': ['Queen']});
+    expect(comp.artist, 'Queen');
+    final bare = j.song({'Id': 's3', 'Name': 'x', 'AlbumArtist': 'Someone', 'Artists': <String>[]});
+    expect(bare.artist, 'Someone', reason: 'no song artists tagged: the album artist');
+    final none = j.song({'Id': 's4', 'Name': 'x', 'Artists': ['Solo']});
+    expect([none.artist, none.searchArtist], ['Solo', 'Solo']);
+  });
 }

@@ -314,9 +314,12 @@ class Jellyfin {
     final id = j['Id'] as String;
     final ud = j['UserData'] as Map? ?? const {};
     final artists = j['ArtistItems'] as List? ?? j['AlbumArtists'] as List? ?? const [];
+    final names = (j['Artists'] as List? ?? const []).whereType<String>().toList();
+    final albumArtist = j['AlbumArtist'] as String? ?? names.firstOrNull ?? '';
     return Song(
       j['Name'] as String? ?? '',
-      j['AlbumArtist'] as String? ?? (j['Artists'] as List?)?.firstOrNull as String? ?? '',
+      // The song's own artists; the album artist only when it has none tagged.
+      names.isNotEmpty ? names.join(', ') : albumArtist,
       j['Album'] as String? ?? '',
       j['ProductionYear'] as int? ?? 0,
       ((j['RunTimeTicks'] as num? ?? 0) / 1e7).round(),
@@ -331,6 +334,7 @@ class Jellyfin {
       favorite: ud['IsFavorite'] == true,
       playlistItemId: j['PlaylistItemId'] as String?,
       lastPlayed: ud['LastPlayedDate'] as String?,
+      albumArtist: albumArtist,
     );
   }
 

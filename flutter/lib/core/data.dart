@@ -22,8 +22,19 @@ class Song {
     this.favorite = false,
     this.playlistItemId,
     this.lastPlayed,
+    this.albumArtist = '',
   });
+  /// [artist] is who the song is by, as everything shows it: its own artists
+  /// ("The Script, will.i.am"), so a compilation or a feature names the right
+  /// people.
   final String id, title, artist, album;
+
+  /// Who the album is by, for searches that match an exact name (lyrics) and
+  /// the media controls' album artist; empty when unknown.
+  final String albumArtist;
+
+  /// The artist to search by: the album artist, else [artist].
+  String get searchArtist => albumArtist.isEmpty ? artist : albumArtist;
   final String? albumId, artistId;
 
   /// Track and disc number, 0 when unknown.
