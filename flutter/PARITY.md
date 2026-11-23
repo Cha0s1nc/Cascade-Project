@@ -123,7 +123,7 @@ Kept apart from the parity lines above, so 3.0's parity check does not count the
 
 - CI: built - `.github/workflows/flutter.yml` analyzes and tests pull requests, and build.yml calls it to build Windows and Linux for a [BETA] or release (or a manual run); `flutter` is a release platform, explicit only until 2.5 (`[desktop, flutter]`)
 - Windows installer: built - Inno Setup, per user, beside the Electron app (`packaging/windows/cascade.iss`), unsigned
-- Linux package: built - .deb and .tar.gz (`packaging/linux/package.sh`), x64, glibc 2.39 or newer; no .rpm or AppImage
+- Linux package: built - .tar.gz for advanced users (`packaging/linux/package.sh`), x64, glibc 2.39 or newer. The .deb was dropped 2026-11-23: the main Linux download is to be a Flatpak on Flathub (not built). No .rpm or AppImage
 - Android APK: not built
 - Updater: not built
 - Versions in lockstep, release marker, changelog: not built

@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# Packages a `flutter build linux --release` bundle as a .deb and a .tar.gz:
+# Packages a `flutter build linux --release` bundle as a .tar.gz, the build for
+# people who manage their own installs:
 #
 #   flutter/packaging/linux/package.sh <bundle dir> <version> <out dir>
 #
-# Installs beside the Electron app, never over it: package cascade-flutter,
-# /opt/cascade-flutter, the command cascade-flutter. The file names carry no
-# version on purpose: see PLATFORM_FILES.flutter in
+# The file name carries no version on purpose: see PLATFORM_FILES.flutter in
 # desktop/src/core/release-plan.ts.
 #
-# ponytail: .deb and .tar.gz only. An .rpm or AppImage would have to bundle
-# or chase libmpv and WebKitGTK; add one when someone asks for it.
+# ponytail: a tarball only. The main Linux download is meant to be a Flatpak on
+# Flathub (not built yet); a .deb was dropped on 2026-11-23 for that, and an
+# AppImage would have to bundle WebKitGTK.
 set -euo pipefail
 
 BUNDLE=$(cd "$1" && pwd)
@@ -17,7 +17,7 @@ VERSION=$2
 OUT=$3
 HERE=$(cd "$(dirname "$0")" && pwd)
 # The tracked 1024 px icon, the same art as the Electron app's generated
-# (and untracked) desktop/assets/linux-icons. Unthemed, so it needs no fixed size.
+# (and untracked) desktop/assets/linux-icons.
 ICON="$HERE/../../../shared/assets/icon.png"
 ID=xyz.chaosinc.cascade.flutter
 [ -x "$BUNDLE/cascade" ] || { echo "No cascade binary in $BUNDLE"; exit 1; }
@@ -26,33 +26,6 @@ OUT=$(cd "$OUT" && pwd)
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 
-# ── .deb ──
-ROOT="$WORK/deb"
-mkdir -p "$ROOT/DEBIAN" "$ROOT/opt/cascade-flutter" "$ROOT/usr/bin" \
-  "$ROOT/usr/share/applications" "$ROOT/usr/share/pixmaps"
-cp -a "$BUNDLE/." "$ROOT/opt/cascade-flutter/"
-# Flutter finds lib/ and data/ from the real path of the binary, so a symlink works.
-ln -s /opt/cascade-flutter/cascade "$ROOT/usr/bin/cascade-flutter"
-install -m 644 "$HERE/$ID.desktop" "$ROOT/usr/share/applications/"
-install -m 644 "$ICON" "$ROOT/usr/share/pixmaps/$ID.png"
-# Root-owned files, writable by root alone, whatever the build machine's umask.
-chmod -R u+rwX,go+rX,go-w "$ROOT"
-# Debian sorts ~ before anything, so a 2.5.0~b1 beta comes before 2.5.0.
-cat > "$ROOT/DEBIAN/control" <<EOF
-Package: cascade-flutter
-Version: ${VERSION//-/\~}
-Architecture: amd64
-Maintainer: cha0s_1nc <contact@chaosinc.xyz>
-Homepage: https://cascade.chaosinc.xyz
-Section: sound
-Priority: optional
-Depends: libgtk-3-0t64 | libgtk-3-0, libmpv2, libwebkit2gtk-4.1-0
-Description: Cascade, a Jellyfin music and video client
- The Flutter build of Cascade for Linux.
-EOF
-dpkg-deb --root-owner-group --build "$ROOT" "$OUT/Cascade-Flutter-amd64.deb"
-
-# ── .tar.gz, for every other distribution ──
 TAR="$WORK/cascade-flutter"
 mkdir -p "$TAR"
 cp -a "$BUNDLE/." "$TAR/"
@@ -61,15 +34,17 @@ cp "$ICON" "$TAR/$ID.png"
 cat > "$TAR/INSTALL.txt" <<EOF
 Cascade $VERSION, Flutter build for Linux (x86_64)
 
-Run ./cascade from this folder. It needs GTK 3, libmpv (mpv's library) and
-WebKitGTK 4.1 installed: on Arch, pacman -S gtk3 mpv webkit2gtk-4.1; on
-Fedora, dnf install gtk3 mpv-libs webkit2gtk4.1.
+Run ./cascade from this folder. It needs glibc 2.39 or newer, GTK 3, libmpv
+(mpv's library) and WebKitGTK 4.1 installed: on Arch, pacman -S gtk3 mpv
+webkit2gtk-4.1; on Fedora, dnf install gtk3 mpv-libs webkit2gtk4.1; on Debian
+13 or Ubuntu 24.04 and newer, apt install libgtk-3-0t64 libmpv2
+libwebkit2gtk-4.1-0.
 
-For a menu entry, copy $ID.desktop to ~/.local/share/applications/ and
-$ID.png to ~/.local/share/icons/, then set Exec= in the
-.desktop file to the full path of ./cascade (or link ./cascade into your PATH
-as cascade-flutter).
+For a menu entry, link ./cascade into your PATH as cascade-flutter (the
+.desktop file runs that), copy $ID.desktop to ~/.local/share/applications/
+and $ID.png to ~/.local/share/icons/.
 EOF
+# Writable by the owner alone, whatever the build machine's umask.
 chmod -R u+rwX,go+rX,go-w "$TAR"
 tar -C "$WORK" -czf "$OUT/Cascade-Flutter-linux-x64.tar.gz" cascade-flutter
 

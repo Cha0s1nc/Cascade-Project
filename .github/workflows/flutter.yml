@@ -1,7 +1,7 @@
 name: Flutter
 
 # Builds the Flutter app in flutter/ and makes its Windows installer and
-# Linux packages, unsigned like the Electron installers. build.yml calls this
+# Linux tarball, unsigned like the Electron installers. build.yml calls this
 # (build-flutter) with the release's version for a [BETA] or release naming
 # flutter; a manual run here makes a test build. A pull request touching
 # flutter/ gets only the check job (analyze and test): the maintainer builds

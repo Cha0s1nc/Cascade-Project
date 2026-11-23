@@ -40,7 +40,7 @@ export const PLATFORM_FILES: Record<Platform, readonly string[]> = {
   // takes the first .exe or .deb carrying the release's version (pickInstaller
   // in update-release.ts), and must never be handed one of these. The version
   // is in versions.json and the mirror's flutter/<version>/ folder instead.
-  // Like the native DMG, desktop's *.exe and *.deb match these too.
+  // Like the native DMG, desktop's patterns match these too (*.exe today).
   flutter: ['Cascade-Flutter-*'],
 }
 
