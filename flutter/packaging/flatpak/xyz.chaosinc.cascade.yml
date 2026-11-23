@@ -1,0 +1,103 @@
+# The Flutter app as a Flatpak. Local test: flutter/packaging/flatpak/build-local.sh.
+#
+# The app module installs the release tarball CI makes (flutter.yml). Here it
+# is a local file the script puts beside this manifest; Flathub's copy takes
+# the release's URL and sha256 instead, with x-checker-data so Flathub's bot
+# opens the update when a release is published.
+#
+# The GNOME runtime brings GTK 3, WebKitGTK 4.1 (the lyrics editor's window),
+# libsoup 3 and FFmpeg; mpv is built here with the two libraries it needs that
+# the runtime lacks. Full codecs come from the runtime's codecs-extra extension.
+id: xyz.chaosinc.cascade
+runtime: org.gnome.Platform
+runtime-version: '51'
+sdk: org.gnome.Sdk
+command: cascade
+
+finish-args:
+  - --share=ipc
+  - --share=network
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --socket=pulseaudio
+  - --device=dri
+  # Media controls (audio_service_mpris: org.mpris.MediaPlayer2.Cascade.instance<pid>).
+  - --own-name=org.mpris.MediaPlayer2.Cascade.*
+  # Discord status, to a Discord installed natively or as its own Flatpak.
+  - --filesystem=xdg-run/discord-ipc-0
+  - --filesystem=xdg-run/app/com.discordapp.Discord:create
+
+# Meson defaults to lib64 here, which is outside the runtime's search paths.
+build-options:
+  config-opts:
+    - --libdir=lib
+
+cleanup:
+  - /include
+  - /lib/pkgconfig
+  - /share/man
+  - '*.a'
+
+modules:
+  - name: libass
+    buildsystem: meson
+    config-opts:
+      - -Dtest=disabled
+      - -Dprofile=disabled
+      - -Dfuzz=disabled
+      - -Dcheckasm=disabled
+    sources:
+      - type: git
+        url: https://github.com/libass/libass.git
+        tag: 0.17.5
+        commit: 4a05d8127f525943ebf45fdc6497c9e665947f0d
+
+  - name: libplacebo
+    buildsystem: meson
+    # OpenGL is what media_kit renders video through (mpv's render API).
+    config-opts:
+      - -Dvulkan=disabled
+      - -Dopengl=enabled
+      - -Dd3d11=disabled
+      - -Ddemos=false
+      - -Dtests=false
+    sources:
+      - type: git
+        url: https://code.videolan.org/videolan/libplacebo.git
+        tag: v7.387.0
+        commit: 275f7dea27924cdd34ab2e6c20e448b6bc4fab65
+
+  - name: mpv
+    buildsystem: meson
+    # libmpv only: media_kit loads libmpv.so.2, nothing runs the mpv player.
+    config-opts:
+      - -Dlibmpv=true
+      - -Dcplayer=false
+      - -Dlua=disabled
+      - -Djavascript=disabled
+      - -Dmanpage-build=disabled
+    sources:
+      - type: git
+        url: https://github.com/mpv-player/mpv.git
+        tag: v0.42.0
+        commit: b0841e8c4d156b8403dc1876c4cbd9011eb583f3
+
+  - name: cascade
+    buildsystem: simple
+    build-commands:
+      # The bundle as Flutter built it: cascade finds lib/ and data/ beside its real path.
+      - mkdir -p /app/cascade /app/bin
+      - cp -a cascade lib data /app/cascade/
+      - ln -s /app/cascade/cascade /app/bin/cascade
+      - desktop-file-edit --set-key=Exec --set-value='cascade %U' --set-name=Cascade xyz.chaosinc.cascade.desktop
+      - install -Dm644 xyz.chaosinc.cascade.desktop /app/share/applications/xyz.chaosinc.cascade.desktop
+      - install -Dm644 icon-512.png /app/share/icons/hicolor/512x512/apps/xyz.chaosinc.cascade.png
+      - install -Dm644 xyz.chaosinc.cascade.metainfo.xml /app/share/metainfo/xyz.chaosinc.cascade.metainfo.xml
+    sources:
+      - type: archive
+        path: Cascade-Flutter-linux-x64.tar.gz
+      - type: file
+        path: xyz.chaosinc.cascade.png
+        dest-filename: icon-512.png
+      - type: file
+        path: xyz.chaosinc.cascade.metainfo.xml
