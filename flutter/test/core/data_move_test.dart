@@ -7,8 +7,8 @@ void main() {
   late Directory root, from, to;
   setUp(() async {
     root = await Directory.systemTemp.createTemp('cascade-move');
-    from = Directory('${root.path}/xyz.chaosinc.cascade');
-    to = Directory('${root.path}/xyz.chaosinc.cascade.flutter');
+    from = Directory('${root.path}/xyz.chaosinc.cascade.flutter');
+    to = Directory('${root.path}/xyz.chaosinc.cascade');
     await Directory('${from.path}/downloads').create(recursive: true);
     await File('${from.path}/downloads/song.flac').writeAsString('audio');
     await File('${from.path}/shared_preferences.json').writeAsString('{"flutter.token":"t"}');

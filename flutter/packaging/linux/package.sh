@@ -19,7 +19,7 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 # The tracked 1024 px icon, the same art as the Electron app's generated
 # (and untracked) desktop/assets/linux-icons.
 ICON="$HERE/../../../shared/assets/icon.png"
-ID=xyz.chaosinc.cascade.flutter
+ID=xyz.chaosinc.cascade
 [ -x "$BUNDLE/cascade" ] || { echo "No cascade binary in $BUNDLE"; exit 1; }
 mkdir -p "$OUT"
 OUT=$(cd "$OUT" && pwd)

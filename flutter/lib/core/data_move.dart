@@ -1,8 +1,10 @@
-// The Linux app id changed from xyz.chaosinc.cascade to
-// xyz.chaosinc.cascade.flutter (apart from the Electron app), and with it the
-// folder Flutter keeps everything in: settings and sign-in, saved lists, the
-// cover cache, downloads. Moved over once, before anything reads them, so an
-// upgrade does not sign the person out or lose their downloads.
+// The Linux app id went from xyz.chaosinc.cascade to
+// xyz.chaosinc.cascade.flutter (2026-11-15) and back (2026-11-23: the id the
+// Flatpak on Flathub will keep for good; the Electron app uses cascade, so the
+// two never collide). With it moves the folder Flutter keeps everything in:
+// settings and sign-in, saved lists, the cover cache, downloads. Moved over
+// once, before anything reads them, so an upgrade does not sign the person out
+// or lose their downloads.
 import 'dart:io';
 
 /// Moves what is in [from] into [to] when [to] has no settings yet. A folder
@@ -34,8 +36,8 @@ Future<bool> moveAppData(Directory from, Directory to) async {
 /// folders inside folders.
 Future<bool> _hasFiles(Directory d) => d.list(recursive: true).any((e) => e is File);
 
-/// The old folder beside [current] (the new id's own), on Linux only.
+/// The .flutter id's folder beside [current] (the app id's own), on Linux only.
 Directory? oldLinuxDataDir(Directory current) {
-  if (!Platform.isLinux || !current.path.endsWith('xyz.chaosinc.cascade.flutter')) return null;
-  return Directory(current.path.substring(0, current.path.length - '.flutter'.length));
+  if (!Platform.isLinux || !current.path.endsWith('xyz.chaosinc.cascade')) return null;
+  return Directory('${current.path}.flutter');
 }
