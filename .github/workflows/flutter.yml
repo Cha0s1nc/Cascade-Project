@@ -1,0 +1,148 @@
+name: Flutter
+
+# Checks and builds the Flutter app in flutter/ on every change to it, and
+# makes its Windows installer and Linux packages. build.yml calls this too
+# (build-flutter) with the release's version, so a release's Flutter files
+# come from the same steps. Unsigned, like the Electron installers.
+#
+# No concurrency group: in a call from build.yml it would share one with a
+# push to dev and could cancel a release's build.
+
+on:
+  push:
+    branches: ['dev']
+    paths: ['flutter/**', 'desktop/assets/linux-icons/**', 'shared/assets/installer-license.txt', '.github/workflows/flutter.yml']
+  pull_request:
+    branches: ['dev']
+    paths: ['flutter/**', 'desktop/assets/linux-icons/**', 'shared/assets/installer-license.txt', '.github/workflows/flutter.yml']
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      version:
+        description: The release version (2.5.0, 2.5.0-b1); empty for a test build
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+env:
+  # The version the app is developed on. Change it here and locally together.
+  FLUTTER_VERSION: '3.44.1'
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: flutter
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - run: flutter pub get
+      - run: flutter analyze
+      - run: flutter test
+
+  windows:
+    needs: check
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: flutter
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      # x.y.z for Flutter and the file version (a beta's -bN is dropped:
+      # Windows only takes numbers), the whole version for the app and the
+      # installer. A test build is 0.0.<run number>.
+      - name: Versions
+        env:
+          INPUT: ${{ inputs.version }}
+          RUN: ${{ github.run_number }}
+        run: |
+          V="${INPUT:-0.0.$RUN}"
+          { echo "VERSION=$V"; echo "BUILD_NAME=${V%%-*}"; echo "RUN=$RUN"; } >> "$GITHUB_ENV"
+
+      # smtc_windows builds its Rust part here, with the runner's own Rust.
+      - name: Build
+        run: flutter build windows --release --build-name "$BUILD_NAME" --build-number "$RUN" --dart-define=CASCADE_VERSION="$VERSION"
+
+      # Flutter does not ship the Visual C++ runtime, and a fresh Windows may
+      # not have it. Microsoft allows copying these three next to the exe.
+      - name: Add the Visual C++ runtime
+        run: |
+          for f in msvcp140.dll vcruntime140.dll vcruntime140_1.dll; do
+            cp "/c/Windows/System32/$f" build/windows/x64/runner/Release/
+          done
+
+      - name: Make the installer
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress; }
+          $release = (Resolve-Path build\windows\x64\runner\Release).Path
+          $out = "$PWD\dist"
+          & $iscc "/DAppVersion=$env:VERSION" "/DNumericVersion=$env:BUILD_NAME.$env:RUN" "/DSourceDir=$release" "/O$out" packaging\windows\cascade.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Get-ChildItem dist
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist-flutter-windows
+          path: flutter/dist/Cascade-Flutter-*
+          retention-days: 7
+
+  linux:
+    needs: check
+    # The glibc here (2.39) is the oldest the build runs on: Ubuntu 24.04,
+    # Debian 13 and newer.
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: flutter
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install the build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev libmpv-dev libwebkit2gtk-4.1-dev libsoup-3.0-dev
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Versions
+        env:
+          INPUT: ${{ inputs.version }}
+          RUN: ${{ github.run_number }}
+        run: |
+          V="${INPUT:-0.0.$RUN}"
+          { echo "VERSION=$V"; echo "BUILD_NAME=${V%%-*}"; echo "RUN=$RUN"; } >> "$GITHUB_ENV"
+
+      - name: Build
+        run: flutter build linux --release --build-name "$BUILD_NAME" --build-number "$RUN" --dart-define=CASCADE_VERSION="$VERSION"
+
+      - name: Package
+        run: packaging/linux/package.sh build/linux/x64/release/bundle "$VERSION" dist
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist-flutter-linux
+          path: flutter/dist/Cascade-Flutter-*
+          retention-days: 7

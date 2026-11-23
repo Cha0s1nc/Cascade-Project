@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Cascade Flutter
+Comment=Jellyfin music and video client
+Exec=cascade-flutter %U
+Icon=xyz.chaosinc.cascade.flutter
+Terminal=false
+Categories=AudioVideo;Audio;Player;
+StartupWMClass=xyz.chaosinc.cascade.flutter

@@ -121,7 +121,10 @@ Kept apart from the parity lines above, so 3.0's parity check does not count the
 
 ## Phase 7: release
 
-- Windows installer, Linux package, Android APK: not built - local builds only
+- CI: built - `.github/workflows/flutter.yml` analyzes, tests and builds Windows and Linux on every change to flutter/, and build.yml calls it for releases; `flutter` is a release platform, explicit only until 2.5 (`[desktop, flutter]`)
+- Windows installer: built - Inno Setup, per user, beside the Electron app (`packaging/windows/cascade.iss`), unsigned
+- Linux package: built - .deb and .tar.gz (`packaging/linux/package.sh`), x64, glibc 2.39 or newer; no .rpm or AppImage
+- Android APK: not built
 - Updater: not built
 - Versions in lockstep, release marker, changelog: not built
 - Settings import from Electron: built - Settings > About copies the desktop app's config.json settings (not its sign-in) and asks for a restart

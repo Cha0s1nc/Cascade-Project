@@ -255,3 +255,30 @@ test('a native DMG alone never proves an Electron build, so a bad versions.json 
   // A versions.json that says desktop 2.4.0 with only 2.4.1 files offers nothing either.
   assert.equal(desktopBuildOf(r, '{"desktop":"2.4.0","mac":"2.4.1"}'), null)
 })
+
+// ── The Flutter app's files beside Electron's ───────────────────────────────
+
+// PLATFORM_FILES.flutter: no version in the names, on purpose.
+const FLUTTER = ['Cascade-Flutter-Setup-x64.exe', 'Cascade-Flutter-amd64.deb', 'Cascade-Flutter-linux-x64.tar.gz']
+
+test('no updater, old or new, can be handed a Flutter file', () => {
+  // Flutter's files first, as an upload order could leave them.
+  const r = release('v2.5.0', ...FLUTTER, ...installers('2.5.0').map(a => a.name), 'versions.json')
+  // The rule every updater in users' hands runs: the first file with the extension and the version.
+  const old = (ext: RegExp) => (r.assets as { name: string }[]).find(a => ext.test(a.name) && nameCarriesVersion(a.name, '2.5.0'))?.name
+  assert.equal(old(/\.exe$/i), 'Cascade.Setup.2.5.0.exe')
+  assert.equal(old(/\.deb$/i), 'cascade_2.5.0_amd64.deb')
+  assert.equal(pickInstaller(r, '2.5.0', WIN)?.name, 'Cascade.Setup.2.5.0.exe')
+  assert.equal(pickInstaller(r, '2.5.0', { platform: 'linux', arch: 'x64', linuxKind: 'deb' })?.name, 'cascade_2.5.0_amd64.deb')
+  // Even if a Flutter name ever gained the version, this updater still skips it.
+  const named = release('v2.5.0', 'Cascade-Flutter-2.5.0-Setup.exe', 'Cascade.Setup.2.5.0.exe')
+  assert.equal(pickInstaller(named, '2.5.0', WIN)?.name, 'Cascade.Setup.2.5.0.exe')
+})
+
+test('a release holding only Flutter files offers Electron nothing', () => {
+  const r = release('v2.5.0', ...FLUTTER, 'versions.json')
+  assert.equal(desktopBuildOf(r, '{"flutter":"2.5.0"}'), null)
+  // Unreadable versions.json: the tag is used, and still nothing proves an Electron build.
+  assert.equal(desktopBuildOf(r, null), null)
+  assert.equal(desktopBuildOf(release('v2.5.0', 'Cascade-Flutter-2.5.0-Setup.exe'), null), null)
+})

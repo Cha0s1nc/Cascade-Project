@@ -111,8 +111,8 @@
   // /releases.json is written by the Cascade repo's publish workflow (to R2,
   // served by this site's Worker): every published release, betas included,
   // with its GitHub release notes word for word and the files it built.
-  const PLATFORMS = { desktop: 'Desktop', mac: 'Mac (native app)', apple: 'iPhone, iPad and Apple TV', android: 'Android' }
-  const FILTER_LABELS = { desktop: 'Desktop', mac: 'Mac', apple: 'Apple', android: 'Android' }
+  const PLATFORMS = { desktop: 'Desktop', mac: 'Mac (native app)', apple: 'iPhone, iPad and Apple TV', android: 'Android', flutter: 'Flutter app (Windows and Linux)' }
+  const FILTER_LABELS = { desktop: 'Desktop', mac: 'Mac', apple: 'Apple', android: 'Android', flutter: 'Flutter' }
 
   const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 

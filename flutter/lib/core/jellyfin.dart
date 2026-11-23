@@ -23,8 +23,9 @@ typedef Group = ({String libraryId, List<Item> items});
 
 const _client = 'Cascade Flutter';
 
-/// The app's version; lockstep versions with the other apps come in phase 7.
-const appVersion = '0.1.0';
+/// The app's version: the release's, passed by CI (flutter.yml) as
+/// --dart-define=CASCADE_VERSION; 0.1.0 in a local build.
+const appVersion = String.fromEnvironment('CASCADE_VERSION', defaultValue: '0.1.0');
 
 /// Default page size when a caller sets no Limit.
 const _pageSize = 500;

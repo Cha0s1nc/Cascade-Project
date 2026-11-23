@@ -114,6 +114,17 @@ Written 2026-10-03. The native Mac app (`CascadeMac` in `apple/`) ships beside t
 - **Defaults and sunset** are the plan's: the native DMG ships as a `[BETA]` first (`[BETA] [mac]` on dev, or a `Release` marker that lists `mac`), Electron stays the default download, and only after parity and a few clean stable releases does the site make native primary. Retiring the Electron Mac build later means deleting the `build-mac` job and nothing else here.
 - **Not done here**: the Swift side (`UpdateRelease.swift`, `MacUpdateInstaller.swift`, the settings import, "Switch back to the Electron build") belongs to the native app's own agents; the website's rendering of `label`; and the one-time in-app offer to Electron users after parity.
 
+## Phase 12: the Flutter app
+
+Written 2026-11-23. The Flutter app in `flutter/` ships its Windows and Linux builds from 2.5, beside Electron, until 3.0 retires Electron.
+
+- **A fifth platform, `flutter`**, with the file pattern `Cascade-Flutter-*`, built only when named like `mac` (`EXPLICIT_ONLY`): `[desktop, flutter]` in a release marker, or "flutter" in a manual run. Changes under `flutter/` build nothing in `build.yml` until that list is emptied; `flutter.yml` checks every change to `flutter/` regardless.
+- **No version in the file names**: `Cascade-Flutter-Setup-x64.exe`, `Cascade-Flutter-amd64.deb`, `Cascade-Flutter-linux-x64.tar.gz`. Every Electron updater in users' hands takes the first `.exe` or `.deb` carrying the release's version, so it can never be handed one of these. The version is in `versions.json` and the mirror's `flutter/<version>/` folder. `pickInstaller` and `desktopBuildOf` also skip `Cascade-Flutter-*` outright.
+- **The same places that drop `Cascade-Native-*` from desktop drop `Cascade-Flutter-*`**, since desktop's `*.exe` and `*.deb` match them: the release job's copy and carry-over in `build.yml`, and the mirror download in `publish.yml`. `test/release-plan.test.ts` checks all three.
+- **`build-flutter`** calls `.github/workflows/flutter.yml` with the version: `flutter analyze` and `flutter test`, then Windows (`flutter build windows`, the Visual C++ runtime DLLs copied in, Inno Setup from `flutter/packaging/windows/cascade.iss`) and Linux on ubuntu-24.04 (`flutter/packaging/linux/package.sh`). The app's displayed version comes from `--dart-define=CASCADE_VERSION`. Unsigned, like Electron's.
+- **Side by side with Electron**: its own Inno AppId, folder (`%LOCALAPPDATA%\Programs\Cascade Flutter`) and Start menu name; on Linux the package `cascade-flutter` in `/opt/cascade-flutter` with the command `cascade-flutter` and app id `xyz.chaosinc.cascade.flutter`.
+- **Not done here**: the Android APK, the Flutter updater, a `### Flutter` changelog section, and the landing page's download buttons (the releases page lists the files). The mirror's daily prune has to walk `flutter/` too; check it once, as for `mac/`.
+
 ## Reference numbers
 
 - A desktop release is about 557 MB (5 installers, 90 to 131 MB each). All 12 releases so far total about 5.8 GB.

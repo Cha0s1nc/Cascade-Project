@@ -176,6 +176,16 @@ test('mac is built only when named: not by a lone marker, [all] or apple/ change
   assert.deepEqual(stable(['Release (x.x.X) [all, mac]']).platforms, ['desktop', 'mac', 'apple'])
 })
 
+test('flutter is built only when named, until 2.5', () => {
+  const all = ['desktop', 'apple', 'flutter'] as const
+  const stable = (messages: string[], files: string[] = []) => planRelease(base({ messages, files, available: [...all] }))
+  assert.deepEqual(stable(['Release (x.X.0) [all]']).platforms, ['desktop', 'apple'])
+  assert.deepEqual(stable(['Release (x.X.0) [desktop, flutter]']).platforms, ['desktop', 'flutter'])
+  assert.equal(stable(['Fix'], ['flutter/lib/main.dart']).mode, 'none')
+  const manual = planRelease(base({ event: 'workflow_dispatch', branch: 'dev', available: [...all], dispatch: { platforms: 'flutter' } }))
+  assert.deepEqual([manual.mode, manual.platforms], ['build', ['flutter']])
+})
+
 test('versionsFor carries each Mac build over on its own', () => {
   // Electron rebuilt, native carried: the native version stays the old one.
   assert.deepEqual(versionsFor({ version: '2.4.1', rebuilt: ['desktop'], carried: ['mac', 'apple'],
@@ -198,6 +208,14 @@ test('platformOfFile tells the native Mac DMG from the Electron one', () => {
   assert.equal(platformOfFile('Cascade-2.0.1.dmg'), 'desktop')
   assert.equal(platformOfFile('Cascade-Native-2.4.0.dmg.blockmap'), null)
   assert.equal(platformOfFile('MyCascade-Native-2.4.0.dmg'), 'desktop')
+})
+
+test('platformOfFile files the Flutter app under flutter, never desktop', () => {
+  assert.equal(platformOfFile('Cascade-Flutter-Setup-x64.exe'), 'flutter')
+  assert.equal(platformOfFile('Cascade-Flutter-amd64.deb'), 'flutter')
+  assert.equal(platformOfFile('Cascade-Flutter-linux-x64.tar.gz'), 'flutter')
+  assert.equal(platformOfFile('Cascade.Setup.2.5.0.exe'), 'desktop')
+  assert.equal(platformOfFile('cascade_2.5.0_amd64.deb'), 'desktop')
 })
 
 test('platformOfFile sorts release files by platform and ignores the rest', () => {
@@ -237,4 +255,16 @@ test('the workflows keep the native Mac DMG out of desktop, and give it its own 
   // The job exists, is gated on the plan's mac output, and the release waits for it.
   assert.match(build, /build-mac-native:\n    needs: setup\n    if: needs\.setup\.outputs\.mac == 'true'/)
   assert.match(build, /needs: \[setup, test, build-windows, build-mac, build-mac-native,/)
+})
+
+test('the workflows keep the Flutter files out of desktop, and give them their own platform', { skip: WORKFLOWS }, () => {
+  const read = (f: string) => readFileSync(new URL(f, WORKFLOW_DIR), 'utf8')
+  const build = read('build.yml')
+  const publish = read('publish.yml')
+  // desktop's *.exe and *.deb match the Flutter files, so both places that fetch them drop them.
+  assert.match(build, /rm -f carried\/desktop\/Cascade-Native-\* carried\/desktop\/Cascade-Flutter-\*/)
+  assert.match(publish, /rm -f "up\/desktop\/\$VERSION"\/Cascade-Native-\* "up\/desktop\/\$VERSION"\/Cascade-Flutter-\*/)
+  assert.match(build, /cp artifacts\/Cascade-Flutter-\* release\//)
+  assert.match(build, /build-flutter:\n    needs: setup\n    if: needs\.setup\.outputs\.flutter == 'true'/)
+  assert.match(build, /needs: \[setup, test, build-windows, build-mac, build-mac-native, build-linux, build-apple, build-android, build-flutter\]/)
 })

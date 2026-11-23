@@ -131,6 +131,11 @@ const NATIVE_MAC_RE = /^Cascade-Native-.+\.dmg$/i
 
 export const isNativeMacInstaller = (name: string): boolean => NATIVE_MAC_RE.test(name)
 
+// The Flutter app's files (release-plan.ts, PLATFORM_FILES.flutter). Named
+// without the version, which already keeps every updater in users' hands off
+// them; this keeps this one off them even if a name ever gains a version.
+const isFlutterFile = (name: string): boolean => /^Cascade-Flutter-/i.test(name)
+
 const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
 /**
@@ -198,7 +203,7 @@ export function desktopBuildOf(release: ReleaseLike, versionsText: string | null
   }
   if (!pick) return null
   const version = pick.version
-  const built = releaseAssets(release).some(a => isDesktopInstaller(a.name) && !isNativeMacInstaller(a.name) && nameCarriesVersion(a.name, version))
+  const built = releaseAssets(release).some(a => isDesktopInstaller(a.name) && !isNativeMacInstaller(a.name) && !isFlutterFile(a.name) && nameCarriesVersion(a.name, version))
   return built ? pick : null
 }
 
@@ -214,7 +219,7 @@ export function desktopBuildOf(release: ReleaseLike, versionsText: string | null
  * were named like it.
  */
 export function pickInstaller(release: ReleaseLike, version: string, target: InstallTarget, macBuild?: MacBuild | null): ReleaseAsset | undefined {
-  const assets = releaseAssets(release).filter(a => nameCarriesVersion(a.name, version))
+  const assets = releaseAssets(release).filter(a => !isFlutterFile(a.name) && nameCarriesVersion(a.name, version))
   const byExt = (re: RegExp) => assets.filter(a => re.test(a.name))
 
   if (target.platform === 'win32') return byExt(/\.exe$/i)[0]

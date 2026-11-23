@@ -50,6 +50,7 @@ jobs:
       mac: ${{ steps.plan.outputs.mac }}
       apple: ${{ steps.plan.outputs.apple }}
       android: ${{ steps.plan.outputs.android }}
+      flutter: ${{ steps.plan.outputs.flutter }}
       prerelease: ${{ steps.plan.outputs.prerelease }}
       publish: ${{ steps.plan.outputs.publish }}
       last_tag: ${{ steps.plan.outputs.last_tag }}
@@ -498,6 +499,18 @@ jobs:
           path: android/dist/*
           retention-days: 7
 
+  # ── Flutter (Windows and Linux) ────────────────────────────────────────────
+  # The Flutter app, built only when named ([flutter], or "flutter" in a
+  # manual run) until 2.5: EXPLICIT_ONLY in desktop/src/core/release-plan.ts.
+  # flutter.yml does the work, the same workflow that checks every change to
+  # flutter/; its installers are unsigned, like the Electron ones.
+  build-flutter:
+    needs: setup
+    if: needs.setup.outputs.flutter == 'true'
+    uses: ./.github/workflows/flutter.yml
+    with:
+      version: ${{ needs.setup.outputs.version }}
+
   # ── TestFlight ─────────────────────────────────────────────────────────────
   # Off until the paid Apple Developer Program exists: it runs only when the
   # repository variable TESTFLIGHT is "true", after the setup in
@@ -621,7 +634,7 @@ jobs:
   # build failed is carried over instead and named in the notes; the draft
   # is for the maintainer to check before publishing.
   release:
-    needs: [setup, test, build-windows, build-mac, build-mac-native, build-linux, build-apple, build-android]
+    needs: [setup, test, build-windows, build-mac, build-mac-native, build-linux, build-apple, build-android, build-flutter]
     if: >-
       always() && needs.setup.result == 'success' &&
       (needs.setup.outputs.mode == 'release' || needs.setup.outputs.mode == 'beta')
@@ -653,12 +666,14 @@ jobs:
           WANT_MAC: ${{ needs.setup.outputs.mac }}
           WANT_APPLE: ${{ needs.setup.outputs.apple }}
           WANT_ANDROID: ${{ needs.setup.outputs.android }}
+          WANT_FLUTTER: ${{ needs.setup.outputs.flutter }}
           WIN: ${{ needs.build-windows.result }}
           MAC: ${{ needs.build-mac.result }}
           MAC_NATIVE: ${{ needs.build-mac-native.result }}
           LINUX: ${{ needs.build-linux.result }}
           APPLE: ${{ needs.build-apple.result }}
           ANDROID: ${{ needs.build-android.result }}
+          FLUTTER: ${{ needs.build-flutter.result }}
           SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
@@ -671,9 +686,12 @@ jobs:
           if [ "$WANT_DESKTOP" = true ]; then
             if [ "$WIN" = success ] && [ "$MAC" = success ] && [ "$LINUX" = success ]; then
               REBUILT+=(desktop)
-              # Not *.dmg: the native Mac DMG is in artifacts/ too, and is
-              # its own platform below.
-              cp artifacts/*.exe artifacts/*.AppImage artifacts/*.deb artifacts/*.rpm release/
+              # Not the Flutter files, which *.exe and *.deb match too, nor
+              # *.dmg: the native Mac DMG is in artifacts/ too. Each is its
+              # own platform below.
+              for f in artifacts/*.exe artifacts/*.AppImage artifacts/*.deb artifacts/*.rpm; do
+                case "${f##*/}" in Cascade-Flutter-*) ;; *) cp "$f" release/ ;; esac
+              done
               for f in artifacts/*.dmg; do
                 case "${f##*/}" in Cascade-Native-*) ;; *) cp "$f" release/ ;; esac
               done
@@ -705,6 +723,14 @@ jobs:
               FAILED+=(android)
             fi
           fi
+          if [ "$WANT_FLUTTER" = true ]; then
+            if [ "$FLUTTER" = success ]; then
+              REBUILT+=(flutter)
+              cp artifacts/Cascade-Flutter-* release/
+            else
+              FAILED+=(flutter)
+            fi
+          fi
           if [ ${#REBUILT[@]} -eq 0 ]; then
             echo "::error::Nothing built successfully; not making a release."
             exit 1
@@ -714,20 +740,22 @@ jobs:
           # files, so nobody has to dig through older releases. Betas do not.
           if [ "$MODE" = release ]; then
             gh release download "$LAST_TAG" -p versions.json -D carried 2>/dev/null || true
-            for p in desktop mac apple android; do
+            for p in desktop mac apple android flutter; do
               [[ " ${REBUILT[*]} " == *" $p "* ]] && continue
               case $p in
                 desktop) PATTERNS=('*.exe' '*.dmg' '*.AppImage' '*.deb' '*.rpm') ;;
                 mac)     PATTERNS=('Cascade-Native-*.dmg') ;;
                 apple)   PATTERNS=('*.ipa' '*.xcarchive.zip') ;;
                 android) PATTERNS=('*.apk' '*.aab') ;;
+                flutter) PATTERNS=('Cascade-Flutter-*') ;;
               esac
               ARGS=(); for pat in "${PATTERNS[@]}"; do ARGS+=(-p "$pat"); done
               mkdir -p "carried/$p"
               gh release download "$LAST_TAG" "${ARGS[@]}" -D "carried/$p" 2>/dev/null || true
-              # desktop's *.dmg pattern also fetched the native DMG, which
-              # belongs to mac and is carried over (or not) on its own.
-              if [ "$p" = desktop ]; then rm -f carried/desktop/Cascade-Native-*; fi
+              # desktop's *.dmg, *.exe and *.deb patterns also fetched the
+              # native DMG and the Flutter files, which belong to mac and
+              # flutter and are carried over (or not) on their own.
+              if [ "$p" = desktop ]; then rm -f carried/desktop/Cascade-Native-* carried/desktop/Cascade-Flutter-*; fi
               FILES=(carried/$p/*)
               if [ ${#FILES[@]} -gt 0 ]; then CARRIED+=("$p"); cp "${FILES[@]}" release/; fi
             done
@@ -745,7 +773,7 @@ jobs:
           if ! node shared/scripts/changelog-section.mjs "${VERSION%%-*}" > notes.md 2>/dev/null; then
             echo "Beta build $VERSION." > notes.md
           fi
-          name() { case $1 in desktop) echo Desktop ;; mac) echo "Mac (native)" ;; apple) echo "iOS and tvOS" ;; android) echo Android ;; esac; }
+          name() { case $1 in desktop) echo Desktop ;; mac) echo "Mac (native)" ;; apple) echo "iOS and tvOS" ;; android) echo Android ;; flutter) echo "Flutter (Windows and Linux)" ;; esac; }
           if [ ${#CARRIED[@]} -gt 0 ]; then
             { echo; echo '---'; echo; echo "Unchanged in this release, carried over from $LAST_TAG:"; echo
               for p in "${CARRIED[@]}"; do echo "- $(name "$p") $(jq -r --arg p "$p" '.[$p] // "?"' release/versions.json)"; done

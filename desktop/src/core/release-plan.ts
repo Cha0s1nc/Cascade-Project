@@ -6,9 +6,10 @@
 
 // `mac` is the native Mac app (apple/, CascadeMac). `desktop` stays the
 // Electron app on every OS, Electron's Mac DMG included; see
-// docs/mac-native-plan.md.
-export type Platform = 'desktop' | 'mac' | 'apple' | 'android'
-export const PLATFORMS: readonly Platform[] = ['desktop', 'mac', 'apple', 'android']
+// docs/mac-native-plan.md. `flutter` is the Flutter app in flutter/, built for
+// Windows and Linux (its Android build is still `android`'s placeholder).
+export type Platform = 'desktop' | 'mac' | 'apple' | 'android' | 'flutter'
+export const PLATFORMS: readonly Platform[] = ['desktop', 'mac', 'apple', 'android', 'flutter']
 
 /**
  * Built only when a marker or manual run names it (`[mac]`, `[desktop, mac]`).
@@ -16,9 +17,10 @@ export const PLATFORMS: readonly Platform[] = ['desktop', 'mac', 'apple', 'andro
  * leave it out, so the native Mac DMG cannot land in a stable release before
  * the maintainer asks for it: docs/mac-native-plan.md, "Defaults and sunset"
  * step 1 (it ships as an explicit [BETA] first). Flipping it on at parity is
- * emptying this list.
+ * emptying this list. `flutter` is held back the same way until 2.5, its first
+ * release: name it (`[desktop, flutter]`) to build or ship it.
  */
-export const EXPLICIT_ONLY: readonly Platform[] = ['mac']
+export const EXPLICIT_ONLY: readonly Platform[] = ['mac', 'flutter']
 const DEFAULT_PLATFORMS: readonly Platform[] = PLATFORMS.filter(p => !EXPLICIT_ONLY.includes(p))
 
 /**
@@ -34,11 +36,17 @@ export const PLATFORM_FILES: Record<Platform, readonly string[]> = {
   mac: ['Cascade-Native-*.dmg'],
   apple: ['*.ipa', '*.xcarchive.zip'],
   android: ['*.apk', '*.aab'],
+  // Never the version in the name: every Electron updater already installed
+  // takes the first .exe or .deb carrying the release's version (pickInstaller
+  // in update-release.ts), and must never be handed one of these. The version
+  // is in versions.json and the mirror's flutter/<version>/ folder instead.
+  // Like the native DMG, desktop's *.exe and *.deb match these too.
+  flutter: ['Cascade-Flutter-*'],
 }
 
-// Most specific first: mac's pattern is a subset of desktop's *.dmg, so
-// testing in PLATFORMS order would file the native DMG under desktop.
-const MATCH_ORDER: readonly Platform[] = ['mac', ...PLATFORMS.filter(p => p !== 'mac')]
+// Most specific first: mac's and flutter's patterns overlap desktop's, so
+// testing in PLATFORMS order would file their files under desktop.
+const MATCH_ORDER: readonly Platform[] = ['mac', 'flutter', ...PLATFORMS.filter(p => p !== 'mac' && p !== 'flutter')]
 
 // A glob as an anchored regex. Only * is special; the patterns above are
 // not general globs. (endsWith would do for "*.ext", but not for a pattern
@@ -110,14 +118,16 @@ export function platformListOf(messages: readonly string[]): Platform[] | null {
  * Apple apps read their Swift copy in apple/, which counts there). `apple/` is
  * two apps, the iOS and tvOS one and the native Mac one, which share its
  * sources; it means mac too once mac is no longer EXPLICIT_ONLY. `android/` is
- * its own. Anything else (docs, the changelog, CI, the repo's scripts, the
- * Workers) builds nothing by itself.
+ * its own, and so is `flutter/` once flutter is no longer EXPLICIT_ONLY.
+ * Anything else (docs, the changelog, CI, the repo's scripts, the Workers)
+ * builds nothing by itself.
  */
 export function platformsFromFiles(files: readonly string[]): Platform[] {
   const hit = new Set<Platform>()
   for (const f of files) {
     if (f.startsWith('apple/')) { hit.add('apple'); if (!EXPLICIT_ONLY.includes('mac')) hit.add('mac') }
     else if (f.startsWith('android/')) hit.add('android')
+    else if (f.startsWith('flutter/')) { if (!EXPLICIT_ONLY.includes('flutter')) hit.add('flutter') }
     else if (f.startsWith('desktop/') || f.startsWith('shared/assets/') || f === 'shared/tuning-defaults.json') hit.add('desktop')
   }
   return PLATFORMS.filter(p => hit.has(p))
