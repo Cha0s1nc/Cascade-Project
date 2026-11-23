@@ -41,10 +41,29 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # The SDK with Linux's engine files, and the Dart packages: inputs only,
+      # never build output, so a release cannot ship something left from an
+      # older run. Saved when a job ends with a key not cached yet.
+      - name: Restore the Flutter SDK
+        uses: actions/cache@v6
+        with:
+          path: ${{ runner.temp }}/flutter
+          key: flutter-sdk-${{ runner.os }}-${{ env.FLUTTER_VERSION }}
+
+      - name: Restore the Dart packages
+        uses: actions/cache@v6
+        with:
+          path: ~/.pub-cache
+          key: pub-${{ runner.os }}-${{ hashFiles('flutter/pubspec.lock') }}
+          restore-keys: pub-${{ runner.os }}-
+
       - name: Install Flutter
         shell: bash
         run: |
-          git clone --depth 1 --branch "$FLUTTER_VERSION" https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
+          if [ ! -x "$RUNNER_TEMP/flutter/bin/flutter" ]; then
+            git clone --depth 1 --branch "$FLUTTER_VERSION" https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
+            "$RUNNER_TEMP/flutter/bin/flutter" precache --linux
+          fi
           echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
 
       - run: flutter pub get
@@ -69,11 +88,42 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # The SDK with Windows's engine files, and the Dart packages: inputs only,
+      # never build output, so a release cannot ship something left from an
+      # older run. Saved when a job ends with a key not cached yet.
+      - name: Restore the Flutter SDK
+        uses: actions/cache@v6
+        with:
+          path: ${{ runner.temp }}/flutter
+          key: flutter-sdk-${{ runner.os }}-${{ env.FLUTTER_VERSION }}
+
+      - name: Restore the Dart packages
+        uses: actions/cache@v6
+        with:
+          path: D:\pub-cache
+          key: pub-${{ runner.os }}-${{ hashFiles('flutter/pubspec.lock') }}
+          restore-keys: pub-${{ runner.os }}-
+
       - name: Install Flutter
         shell: bash
         run: |
-          git clone --depth 1 --branch "$FLUTTER_VERSION" https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
+          if [ ! -x "$RUNNER_TEMP/flutter/bin/flutter" ]; then
+            git clone --depth 1 --branch "$FLUTTER_VERSION" https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
+            "$RUNNER_TEMP/flutter/bin/flutter" precache --windows
+          fi
           echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
+
+      # smtc_windows' Rust: the crates cargo downloads, and cargokit's compiled
+      # output (its build tool and the crate), keyed on pubspec.lock, which pins
+      # the plugin and so its Cargo.lock. Same path every run, so cargo reuses it.
+      - name: Restore the Rust build
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            flutter/build/windows/x64/plugins/smtc_windows/cargokit_build
+          key: cargokit-smtc-${{ hashFiles('flutter/pubspec.lock') }}
 
       # x.y.z for Flutter and the file version (a beta's -bN is dropped:
       # Windows only takes numbers), the whole version for the app and the
@@ -131,22 +181,60 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # With recommends this was 343 packages (219 MB), mostly GStreamer and
-      # video driver extras, and the runner's Ubuntu mirror can be slow enough
-      # to take over 10 minutes for them. man-db's index rebuild is off too: it
-      # adds a minute or more after a big install and nothing reads it here.
+      # The packages apt downloads (about 180 MB), so a slow Ubuntu mirror is
+      # paid once a month, not every run. The month is in the key because the
+      # runner image moves on weekly: a key that never changed would serve an
+      # ever older set and apt would quietly fetch more each time.
+      - name: Month
+        id: month
+        run: echo "month=$(date -u +%Y-%m)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore the package downloads
+        uses: actions/cache@v6
+        with:
+          path: ~/apt-archives
+          key: apt-${{ runner.os }}-${{ steps.month.outputs.month }}-${{ hashFiles('.github/workflows/flutter.yml') }}
+          restore-keys: apt-${{ runner.os }}-
+
+      # Without recommends the list is mostly WebKitGTK's development files.
+      # man-db's index rebuild is off: it adds a minute or more after a big
+      # install and nothing reads it here.
       - name: Install the build dependencies
         timeout-minutes: 20
         run: |
           echo 'set man-db/auto-update false' | sudo debconf-communicate >/dev/null
           sudo rm -f /var/lib/man-db/auto-update
+          mkdir -p ~/apt-archives/partial
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends clang cmake ninja-build pkg-config libgtk-3-dev libmpv-dev libwebkit2gtk-4.1-dev libsoup-3.0-dev
+          sudo apt-get install -y --no-install-recommends -o Dir::Cache::Archives="$HOME/apt-archives" clang cmake ninja-build pkg-config libgtk-3-dev libmpv-dev libwebkit2gtk-4.1-dev libsoup-3.0-dev
+          # apt leaves its files root-owned; the cache step saves as the runner user.
+          sudo rm -rf ~/apt-archives/partial ~/apt-archives/lock
+          sudo chown -R "$(id -u):$(id -g)" ~/apt-archives
+          du -sh ~/apt-archives
+
+      # The SDK with Linux's engine files, and the Dart packages: inputs only,
+      # never build output, so a release cannot ship something left from an
+      # older run. Saved when a job ends with a key not cached yet.
+      - name: Restore the Flutter SDK
+        uses: actions/cache@v6
+        with:
+          path: ${{ runner.temp }}/flutter
+          key: flutter-sdk-${{ runner.os }}-${{ env.FLUTTER_VERSION }}
+
+      - name: Restore the Dart packages
+        uses: actions/cache@v6
+        with:
+          path: ~/.pub-cache
+          key: pub-${{ runner.os }}-${{ hashFiles('flutter/pubspec.lock') }}
+          restore-keys: pub-${{ runner.os }}-
 
       - name: Install Flutter
         shell: bash
         run: |
-          git clone --depth 1 --branch "$FLUTTER_VERSION" https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
+          if [ ! -x "$RUNNER_TEMP/flutter/bin/flutter" ]; then
+            git clone --depth 1 --branch "$FLUTTER_VERSION" https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
+            "$RUNNER_TEMP/flutter/bin/flutter" precache --linux
+          fi
           echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
 
       - name: Versions
