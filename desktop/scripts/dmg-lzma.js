@@ -1,5 +1,5 @@
 // Recompress each DMG electron-builder made as ULMO (LZMA): 125 MB to about
-// 96 MB. electron-builder 24's dmg.format stops at ULFO, so this converts its
+// 96 MB. electron-builder's dmg.format stops at ULFO (still so in 26), so this converts its
 // UDZO output afterwards. ULMO needs macOS 10.15, below Electron's own floor.
 //
 // The updater checks GitHub's digest of the uploaded file, so converting
