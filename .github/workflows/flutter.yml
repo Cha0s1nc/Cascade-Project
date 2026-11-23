@@ -13,7 +13,7 @@ name: Flutter
 on:
   pull_request:
     branches: ['dev']
-    paths: ['flutter/**', 'desktop/assets/linux-icons/**', 'shared/assets/installer-license.txt', '.github/workflows/flutter.yml']
+    paths: ['flutter/**', 'shared/assets/icon.png', 'shared/assets/installer-license.txt', '.github/workflows/flutter.yml']
   workflow_dispatch:
   workflow_call:
     inputs:

@@ -16,7 +16,9 @@ BUNDLE=$(cd "$1" && pwd)
 VERSION=$2
 OUT=$3
 HERE=$(cd "$(dirname "$0")" && pwd)
-ICON="$HERE/../../../desktop/assets/linux-icons/512x512.png"
+# The tracked 1024 px icon, the same art as the Electron app's generated
+# (and untracked) desktop/assets/linux-icons. Unthemed, so it needs no fixed size.
+ICON="$HERE/../../../shared/assets/icon.png"
 ID=xyz.chaosinc.cascade.flutter
 [ -x "$BUNDLE/cascade" ] || { echo "No cascade binary in $BUNDLE"; exit 1; }
 mkdir -p "$OUT"
@@ -27,12 +29,12 @@ trap 'rm -rf "$WORK"' EXIT
 # ── .deb ──
 ROOT="$WORK/deb"
 mkdir -p "$ROOT/DEBIAN" "$ROOT/opt/cascade-flutter" "$ROOT/usr/bin" \
-  "$ROOT/usr/share/applications" "$ROOT/usr/share/icons/hicolor/512x512/apps"
+  "$ROOT/usr/share/applications" "$ROOT/usr/share/pixmaps"
 cp -a "$BUNDLE/." "$ROOT/opt/cascade-flutter/"
 # Flutter finds lib/ and data/ from the real path of the binary, so a symlink works.
 ln -s /opt/cascade-flutter/cascade "$ROOT/usr/bin/cascade-flutter"
 install -m 644 "$HERE/$ID.desktop" "$ROOT/usr/share/applications/"
-install -m 644 "$ICON" "$ROOT/usr/share/icons/hicolor/512x512/apps/$ID.png"
+install -m 644 "$ICON" "$ROOT/usr/share/pixmaps/$ID.png"
 # Root-owned files, writable by root alone, whatever the build machine's umask.
 chmod -R u+rwX,go+rX,go-w "$ROOT"
 # Debian sorts ~ before anything, so a 2.5.0~b1 beta comes before 2.5.0.
@@ -54,8 +56,8 @@ dpkg-deb --root-owner-group --build "$ROOT" "$OUT/Cascade-Flutter-amd64.deb"
 TAR="$WORK/cascade-flutter"
 mkdir -p "$TAR"
 cp -a "$BUNDLE/." "$TAR/"
-cp "$HERE/$ID.desktop" "$ICON" "$TAR/"
-mv "$TAR/512x512.png" "$TAR/$ID.png"
+cp "$HERE/$ID.desktop" "$TAR/"
+cp "$ICON" "$TAR/$ID.png"
 cat > "$TAR/INSTALL.txt" <<EOF
 Cascade $VERSION, Flutter build for Linux (x86_64)
 
@@ -64,7 +66,7 @@ WebKitGTK 4.1 installed: on Arch, pacman -S gtk3 mpv webkit2gtk-4.1; on
 Fedora, dnf install gtk3 mpv-libs webkit2gtk4.1.
 
 For a menu entry, copy $ID.desktop to ~/.local/share/applications/ and
-$ID.png to ~/.local/share/icons/hicolor/512x512/apps/, then set Exec= in the
+$ID.png to ~/.local/share/icons/, then set Exec= in the
 .desktop file to the full path of ./cascade (or link ./cascade into your PATH
 as cascade-flutter).
 EOF
