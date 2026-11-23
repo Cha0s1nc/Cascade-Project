@@ -1522,7 +1522,7 @@ function _dpRenderNowPlaying() {
   const item = s.NowPlayingItem
   const ps = s.PlayState || {}
   document.getElementById('dp-now-track').textContent = item
-    ? `${item.Name}${item.AlbumArtist ? ' — ' + item.AlbumArtist : ''}`
+    ? `${item.Name}${trackArtist(item) ? ' — ' + trackArtist(item) : ''}`
     : 'Nothing playing'
   document.getElementById('dp-icon-play').style.display  = ps.IsPaused === false ? 'none' : ''
   document.getElementById('dp-icon-pause').style.display = ps.IsPaused === false ? '' : 'none'
@@ -6315,7 +6315,15 @@ function secondaryLine(item) {
     return [item.SeriesName, code].filter(Boolean).join(' · ')
   }
   if (item?.Type === 'Movie') return item.ProductionYear ? String(item.ProductionYear) : ''
-  return item?.AlbumArtist || item?.Artists?.[0] || ''
+  return trackArtist(item)
+}
+
+// Who a song is by, as Now Playing and the player show it: its own artists
+// ("The Weeknd, Daft Punk"), not the album's, so a compilation or a feature
+// names the right people. The album artist only when the song has none tagged.
+// Album lookups (cover art searches, Go to artist) keep using AlbumArtist.
+function trackArtist(item) {
+  return item?.Artists?.length ? item.Artists.join(', ') : (item?.AlbumArtist || '')
 }
 
 function updateNowPlaying(item) {
@@ -6383,15 +6391,15 @@ function updateNowPlaying(item) {
   document.getElementById('ov-art-like').classList.toggle('liked', liked)
 
   // Update Touch Bar track label
-  window.cascade.touchbarUpdate({ title: `${item.Name}  -  ${item.AlbumArtist || item.Artists?.[0] || ''}` })
+  window.cascade.touchbarUpdate({ title: `${item.Name}  -  ${trackArtist(item)}` })
 
   // Notify Cha0s Stream of the new track
   // Ids rather than a URL: artUrl() embeds this client's token, and a consumer
   // with its own Jellyfin session (Cha0s Stream borrows one via
-  // /cascade/jellyfin) should build its own. Same fallbacks as line 1504.
+  // /cascade/jellyfin) should build its own.
   window.cascade.nowPlayingUpdate({
     title: item.Name || '',
-    artist: item.AlbumArtist || item.Artists?.[0] || '',
+    artist: trackArtist(item),
     album: item.Album || '',
     // The track's own id, distinct from artItemId, which prefers AlbumId and so
     // identifies the artwork rather than the song. A consumer correlating what is
@@ -11169,7 +11177,7 @@ function syncOverlayState() {
 
   // Info - wrapped so the marquee has an inline-block track to translate
   document.getElementById('ov-track').innerHTML  = `<span class="np-scroll-inner">${esc(item.Name || '')}${explicitBadgeHtml(item.Id)}</span>`
-  document.getElementById('ov-artist').innerHTML = `<span class="np-scroll-inner">${esc(item.AlbumArtist || item.Artists?.[0] || '')}</span>`
+  document.getElementById('ov-artist').innerHTML = `<span class="np-scroll-inner">${esc(trackArtist(item))}</span>`
   refreshMarquees()
 
   // Shuffle / repeat state
@@ -11257,7 +11265,7 @@ function _queueRowHtml(item, i, { current = false, editable = false } = {}) {
   const thumb = art ? `<img src="${art}" alt="" loading="lazy" onerror="this.style.display='none'">` : '♪'
   const dur   = fmtTime((item.RunTimeTicks || 0) / 10000000)
   const by    = queueAddedBy(i)
-  const sub   = item.__wfUnavailable ? '' : esc(item.AlbumArtist || item.Artists?.[0] || '')
+  const sub   = item.__wfUnavailable ? '' : esc(trackArtist(item))
   return `<div class="queue-row${current ? ' current' : ''}${item.__wfUnavailable ? ' unavailable' : ''}" data-qi="${i}"${editable ? ' draggable="true"' : ''}>
       ${editable ? `<div class="queue-row-drag" title="Drag to reorder">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="16" y2="6"/><line x1="8" y1="12" x2="16" y2="12"/><line x1="8" y1="18" x2="16" y2="18"/></svg>
