@@ -160,7 +160,6 @@ struct FirstRunWizardView: View {
         }
         .frame(width: 520, height: 540)
         .background(Cx.surface)
-        .tint(Cx.accent)
         .interactiveDismissDisabled(false)
     }
 

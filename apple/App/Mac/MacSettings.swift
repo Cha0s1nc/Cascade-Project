@@ -86,7 +86,7 @@ struct MacSettingsView: View {
 
     /// Personality v1, as Flutter's SettingsPanel: the tabs in a pill track whose accent pill
     /// slides to the chosen one, then the tab's grouped settings at most 760 pt wide, on the
-    /// page's background. The rows are the system's grouped Form rows.
+    /// page's background, in CxFormStyle's cards. No page tint: see CxFormStyle.
     var body: some View {
         VStack(spacing: 0) {
             tabBar
@@ -107,7 +107,6 @@ struct MacSettingsView: View {
             // fraction, which moved the margins again, halving toward x.5 forever (a 98% CPU hang).
             .onGeometryChange(for: CGFloat.self) { $0.size.width.rounded() } action: { width = $0 }
         }
-        .tint(Cx.accent)
         .background(Cx.bg)
         .frame(minWidth: 520, idealWidth: 640, minHeight: 420, idealHeight: 580)
         .onAppear {
@@ -261,6 +260,7 @@ private struct PlaybackTab: View {
                                     SettingsActions.setCrossfade(seconds: crossfadeLength, state: state)
                                 }), in: Double(Crossfade.range.lowerBound)...Double(Crossfade.range.upperBound), step: 1)
                                     .frame(width: 180)
+                                    .tint(Cx.accent)
                                     .accessibilityLabel("Crossfade length")
                                 Text("\(crossfadeLength) s").monospacedDigit().frame(width: 36, alignment: .trailing)
                             }
@@ -376,7 +376,12 @@ private struct AccountTab: View {
         Form {
             Section("Account") {
                 LabeledContent("Server", value: state.config?.url ?? "")
-                LabeledContent("Signed in as", value: username ?? "")
+                LabeledContent("Signed in as") {
+                    HStack(spacing: 12) {
+                        Text(username ?? "")
+                        Button("Sign Out\u{2026}", role: .destructive) { confirmingSignOut = true }
+                    }
+                }
             }
 
             // The headers a reverse proxy in front of the server needs, as on the desktop's
@@ -384,17 +389,18 @@ private struct AccountTab: View {
             ProxySettingsSection()
 
             Section {
-                SecureField("Current password", text: $currentPassword)
-                SecureField("New password", text: $newPassword)
-                SecureField("Repeat new password", text: $repeatPassword)
+                CxFieldRow("Current password", text: $currentPassword, prompt: "Required", secure: true)
+                CxFieldRow("New password", text: $newPassword, prompt: "Required", secure: true)
+                CxFieldRow("Repeat new password", text: $repeatPassword, prompt: "Required", secure: true)
                     .onSubmit { changePassword() }
-                HStack {
-                    Button(isChanging ? "Changing\u{2026}" : "Change Password") { changePassword() }
-                        .disabled(isChanging || newPassword.isEmpty || passwordProblem != nil)
+                CxButtonRow {
                     if let message = passwordProblem ?? passwordStatus?.message {
-                        Text(message).scaledFont(.caption)
+                        Text(message)
                             .foregroundStyle(passwordProblem == nil && passwordStatus?.ok == true ? Color.green : Color.red)
                     }
+                } buttons: {
+                    Button(isChanging ? "Changing\u{2026}" : "Change Password") { changePassword() }
+                        .disabled(isChanging || newPassword.isEmpty || passwordProblem != nil)
                 }
             } header: {
                 Text("Password")
@@ -404,15 +410,16 @@ private struct AccountTab: View {
 
             if quickConnectEnabled {
                 Section {
-                    TextField("Code", text: $approveCode)
+                    CxFieldRow("Code", text: $approveCode, prompt: "The code on the other device")
                         .accessibilityIdentifier("approveCode")
                         .onSubmit { approve() }
-                    HStack {
+                    CxButtonRow {
+                        if let approveStatus {
+                            Text(approveStatus.message).foregroundStyle(approveStatus.ok ? Color.green : Color.red)
+                        }
+                    } buttons: {
                         Button(isApproving ? "Approving\u{2026}" : "Approve") { approve() }
                             .disabled(isApproving || QuickConnect.normalizedCode(approveCode) == nil)
-                        if let approveStatus {
-                            Text(approveStatus.message).scaledFont(.caption).foregroundStyle(approveStatus.ok ? Color.green : Color.red)
-                        }
                     }
                 } header: {
                     Text("Approve a Device")
@@ -421,9 +428,6 @@ private struct AccountTab: View {
                 }
             }
 
-            Section {
-                Button("Sign Out", role: .destructive) { confirmingSignOut = true }
-            }
         }
         .formStyle(CxFormStyle())
         .confirmationDialog("Sign out?", isPresented: $confirmingSignOut, titleVisibility: .visible) {
@@ -506,10 +510,11 @@ private struct AboutTab: View {
                     beta = $0
                     UserDefaults.standard.set($0, forKey: "cascade.betaUpdates")
                 }))
-                HStack {
+                CxButtonRow {
+                    Text(statusText).foregroundStyle(Cx.text3)
+                } buttons: {
                     Button("Check for Updates") { Task { await updates.check(manual: true) } }
                         .disabled(updates.status == .checking)
-                    Text(statusText).scaledFont(.caption).foregroundStyle(.secondary)
                 }
             } header: {
                 Text("Updates")
@@ -517,8 +522,10 @@ private struct AboutTab: View {
                 Text("Beta builds arrive first and may be rough. A beta build follows the beta channel unless you turn it off here.")
             }
             Section {
-                Button("Switch back to the Electron build\u{2026}") { confirmingSwitch = true }
-                    .disabled(updates.status == .checking)
+                LabeledContent("Switch back to the Electron build") {
+                    Button("Switch Back\u{2026}") { confirmingSwitch = true }
+                        .disabled(updates.status == .checking)
+                }
             } header: {
                 Text("Electron build")
             } footer: {

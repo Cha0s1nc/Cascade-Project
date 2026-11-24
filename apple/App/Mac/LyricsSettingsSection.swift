@@ -42,9 +42,11 @@ struct LyricsSettingsSection: View {
                             .scaledFont(.caption).foregroundStyle(.secondary)
                     }
                 }
-                Button("Open Language & Region") {
-                    if let url = URL(string: "x-apple.systempreferences:com.apple.Localization-Settings.extension") {
-                        NSWorkspace.shared.open(url)
+                CxButtonRow {
+                    Button("Open Language & Region\u{2026}") {
+                        if let url = URL(string: "x-apple.systempreferences:com.apple.Localization-Settings.extension") {
+                            NSWorkspace.shared.open(url)
+                        }
                     }
                 }
             }

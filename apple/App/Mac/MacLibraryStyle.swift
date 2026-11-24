@@ -156,12 +156,12 @@ struct FilterChips: View {
 /// The page's buttons: Play in the accent, the rest on the surface.
 struct PillButton: View {
     let title: String
-    let symbol: String
+    let symbol: String?
     var primary = false
     let action: () -> Void
     @State private var hovering = false
 
-    init(_ title: String, symbol: String, primary: Bool = false, action: @escaping () -> Void) {
+    init(_ title: String, symbol: String? = nil, primary: Bool = false, action: @escaping () -> Void) {
         self.title = title
         self.symbol = symbol
         self.primary = primary
@@ -170,7 +170,9 @@ struct PillButton: View {
 
     var body: some View {
         Button(action: action) {
-            Label(title, systemImage: symbol)
+            Group {
+                if let symbol { Label(title, systemImage: symbol) } else { Text(title) }
+            }
                 .cx(.strong)
                 .foregroundStyle(primary ? Cx.ink : Cx.text)
                 .padding(.horizontal, 16).padding(.vertical, 9)
@@ -523,18 +525,119 @@ struct CxLikeButton: View {
 /// each section a card on the surface with a line round it, its title in caps above a rule,
 /// one row per control with a rule between, and its footer as a quiet note under the card.
 /// Controls keep the grouped form's layout: label at the left, control at the right.
+///
+/// The app-wide accent tint (MacThemed) is reset to the default here: since macOS 26 a tint
+/// also colors a bordered button's label and a pop-up's value, which on these dark cards read
+/// as faint accent text with no visible bezel. Without it buttons and pop-ups are the
+/// system's gray ones, as in System Settings; switches and the settings sliders set the
+/// accent themselves. Fields go inline with CxFieldRow, buttons at a row's end (CxButtonRow).
 struct CxFormStyle: FormStyle {
+    /// False for a form inside a page that already scrolls (sign-in's Advanced).
+    var scrolls = true
+
     func makeBody(configuration: Configuration) -> some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                ForEach(sections: configuration.content) { section in
-                    CxFormSection(section: section)
+        Group {
+            if scrolls {
+                ScrollView {
+                    sections(configuration).padding(.horizontal, 22).padding(.top, 6).padding(.bottom, 32)
                 }
+            } else {
+                sections(configuration)
             }
-            .padding(.horizontal, 22).padding(.top, 6).padding(.bottom, 32)
         }
         .toggleStyle(CxRowToggleStyle())
         .labeledContentStyle(CxRowLabeledContentStyle())
+        .tint(nil)
+    }
+
+    private func sections(_ configuration: Configuration) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            ForEach(sections: configuration.content) { section in
+                CxFormSection(section: section)
+            }
+        }
+    }
+}
+
+/// A text field inline in a settings row, as System Settings draws one: the label at the
+/// left, the value edited in place at the right with no box, the prompt standing in while it
+/// is empty, and a faint field behind it only while it has focus.
+struct CxFieldRow: View {
+    let title: String
+    @Binding var text: String
+    var prompt = ""
+    var secure = false
+    @FocusState private var focused: Bool
+
+    init(_ title: String, text: Binding<String>, prompt: String = "", secure: Bool = false) {
+        self.title = title
+        self._text = text
+        self.prompt = prompt
+        self.secure = secure
+    }
+
+    var body: some View {
+        LabeledContent(title) {
+            Group {
+                if secure {
+                    SecureField(title, text: $text, prompt: Text(prompt))
+                } else {
+                    TextField(title, text: $text, prompt: Text(prompt))
+                }
+            }
+            .labelsHidden()
+            .textFieldStyle(.plain)
+            .multilineTextAlignment(.trailing)
+            .foregroundStyle(Cx.text)
+            .focused($focused)
+            .padding(.horizontal, 6).padding(.vertical, 3)
+            .background(focused ? Cx.surface2 : .clear, in: RoundedRectangle(cornerRadius: 5))
+        }
+    }
+}
+
+/// Buttons at the trailing end of their own row, as System Settings sets them ("Add Group…",
+/// "Edit…"), with an optional note at the leading end (a status, a problem in red).
+struct CxButtonRow<Note: View, Buttons: View>: View {
+    @ViewBuilder let note: Note
+    @ViewBuilder let buttons: Buttons
+
+    var body: some View {
+        // A Spacer, not a stretched note: an empty note (EmptyView, or an `if` that is false)
+        // drops its frame with it and the buttons slid to the left.
+        HStack(spacing: 10) {
+            note.font(.cxBody(11.5))
+            Spacer(minLength: 0)
+            buttons
+        }
+    }
+}
+
+extension CxButtonRow where Note == EmptyView {
+    init(@ViewBuilder buttons: () -> Buttons) {
+        self.note = EmptyView()
+        self.buttons = buttons()
+    }
+}
+
+/// A row's label: its first line as the title, any further lines as the description under
+/// it in text 3, as the system's grouped form stacks them. In a plain HStack the lines
+/// would sit side by side, the description as a squeezed middle column.
+private struct CxRowLabel<Label: View>: View {
+    let label: Label
+    @Environment(\.uiScale) private var zoom
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Group(subviews: label) { lines in
+                if let first = lines.first { first }
+                ForEach(lines.dropFirst()) { line in
+                    line.font(.cxBody(11.5 * zoom)).foregroundStyle(Cx.text3)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -578,8 +681,9 @@ private struct CxFormSection: View {
 private struct CxRowToggleStyle: ToggleStyle {
     func makeBody(configuration: Configuration) -> some View {
         HStack(spacing: 16) {
-            configuration.label.frame(maxWidth: .infinity, alignment: .leading)
+            CxRowLabel(label: configuration.label)
             Toggle("", isOn: configuration.$isOn).toggleStyle(.switch).labelsHidden().controlSize(.small)
+                .tint(Cx.accent)
         }
     }
 }
@@ -588,7 +692,7 @@ private struct CxRowToggleStyle: ToggleStyle {
 private struct CxRowLabeledContentStyle: LabeledContentStyle {
     func makeBody(configuration: Configuration) -> some View {
         HStack(spacing: 16) {
-            configuration.label.frame(maxWidth: .infinity, alignment: .leading)
+            CxRowLabel(label: configuration.label)
             configuration.content.foregroundStyle(Cx.text2)
         }
     }

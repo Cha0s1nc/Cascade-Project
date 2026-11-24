@@ -71,6 +71,18 @@ struct ProxySettingsSection: View {
                 LabeledContent(header.name, value: "\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}")
             }
             .onDelete(perform: remove)
+            #if os(macOS)
+            // Inline in their rows and the button at the row's end, as System Settings does.
+            CxFieldRow("Header name", text: $name, prompt: "CF-Access-Client-Id")
+                .autocorrectionDisabled()
+            CxFieldRow("Header value", text: $value, prompt: "Required", secure: true)
+            CxButtonRow {
+                if let problem { Text(problem).foregroundStyle(.red) }
+            } buttons: {
+                Button("Add Header", action: add)
+                    .disabled(name.isEmpty || value.isEmpty)
+            }
+            #else
             TextField("Header name", text: $name)
                 .autocorrectionDisabled()
                 #if os(iOS)
@@ -82,6 +94,7 @@ struct ProxySettingsSection: View {
             if let problem {
                 Text(problem).foregroundStyle(.red)
             }
+            #endif
             #if !os(tvOS)
             clientCertificateRows
             #endif
@@ -112,21 +125,30 @@ struct ProxySettingsSection: View {
     /// Any identity in the keychains, or a .p12 or .pfx imported into the login
     /// keychain, offered when the server asks for a client certificate.
     @ViewBuilder private var clientCertificateRows: some View {
-        Picker("Client Certificate", selection: $chosen) {
-            Text("None").tag(String?.none)
-            ForEach(choices) { choice in
-                Text(choice.issuer.map { "\(choice.name) (\($0))" } ?? choice.name).tag(Optional(choice.id))
-            }
-            // A remembered one that left the keychain (or expired) stays visible.
-            if let chosen, !choices.contains(where: { $0.id == chosen }) {
-                Text("Not in the keychain").tag(Optional(chosen))
+        // The picker and Import share the row, as System Settings pairs a choice with its button.
+        LabeledContent("Client Certificate") {
+            HStack(spacing: 8) {
+                Picker("Client Certificate", selection: $chosen) {
+                    Text("None").tag(String?.none)
+                    ForEach(choices) { choice in
+                        Text(choice.issuer.map { "\(choice.name) (\($0))" } ?? choice.name).tag(Optional(choice.id))
+                    }
+                    // A remembered one that left the keychain (or expired) stays visible.
+                    if let chosen, !choices.contains(where: { $0.id == chosen }) {
+                        Text("Not in the keychain").tag(Optional(chosen))
+                    }
+                }
+                .labelsHidden()
+                // Capped, not fixedSize(): a fixed-size pop-up here sent the Account tab into
+                // an endless layout pass (100% CPU, a blank page).
+                .frame(maxWidth: 240)
+                .onAppear { choices = ClientIdentity.available() }
+                .onChange(of: chosen) { _, id in
+                    if id != ClientIdentity.chosen { ClientIdentity.choose(id) }
+                }
+                Button("Import\u{2026}") { importing = true }
             }
         }
-        .onAppear { choices = ClientIdentity.available() }
-        .onChange(of: chosen) { _, id in
-            if id != ClientIdentity.chosen { ClientIdentity.choose(id) }
-        }
-        Button("Import Certificate File\u{2026}") { importing = true }
         if let certificateProblem {
             Text(certificateProblem).foregroundStyle(.red)
         }

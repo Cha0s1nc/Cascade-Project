@@ -20,19 +20,15 @@ struct DiscordSettingsSection: View {
                 Circle().fill(discord.connected ? Color.green : Color.secondary.opacity(0.5)).frame(width: 8, height: 8)
                 Text(discord.connected ? "Connected" : "Not connected").foregroundStyle(.secondary)
             }
-            // Labeled: outside the system form a field's label is only its placeholder.
-            LabeledContent("Client ID") {
-                TextField("Client ID", text: $clientId, prompt: Text(DiscordClient.defaultClientId))
-                    .labelsHidden()
-                    .onSubmit {
-                        let id = clientId.trimmingCharacters(in: .whitespaces)
-                        // Same shape the desktop accepts: digits only.
-                        if id.isEmpty || (id.count >= 5 && id.count <= 32 && id.allSatisfy(\.isNumber)) {
-                            UserDefaults.standard.set(id, forKey: MacIntegrations.discordClientIdKey)
-                            MacIntegrations.applyDiscordSettings()
-                        } else { clientId = MacIntegrations.discordClientId }
-                    }
-            }
+            CxFieldRow("Client ID", text: $clientId, prompt: DiscordClient.defaultClientId)
+                .onSubmit {
+                    let id = clientId.trimmingCharacters(in: .whitespaces)
+                    // Same shape the desktop accepts: digits only.
+                    if id.isEmpty || (id.count >= 5 && id.count <= 32 && id.allSatisfy(\.isNumber)) {
+                        UserDefaults.standard.set(id, forKey: MacIntegrations.discordClientIdKey)
+                        MacIntegrations.applyDiscordSettings()
+                    } else { clientId = MacIntegrations.discordClientId }
+                }
             Text("Leave the client ID empty to use Cascade's own application. Discord has to be running on this Mac.")
                 .scaledFont(.caption).foregroundStyle(.secondary)
         }

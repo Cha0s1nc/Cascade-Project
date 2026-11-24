@@ -234,7 +234,7 @@ struct DisplaySettingsSection: View {
     private func percent(_ name: String, _ value: Binding<Double>) -> some View {
         LabeledContent(name) {
             HStack {
-                Slider(value: value, in: CoverSlice.strengthRange, step: 0.05).frame(maxWidth: 180).accessibilityLabel(name)
+                Slider(value: value, in: CoverSlice.strengthRange, step: 0.05).frame(maxWidth: 180).tint(Cx.accent).accessibilityLabel(name)
                 Text("\(Int((value.wrappedValue * 100).rounded()))%").monospacedDigit().frame(width: 44, alignment: .trailing)
             }
         }
@@ -243,7 +243,7 @@ struct DisplaySettingsSection: View {
     private func seconds(_ name: String, _ value: Binding<Double>, _ range: ClosedRange<Double>) -> some View {
         LabeledContent(name) {
             HStack {
-                Slider(value: value, in: range, step: 0.1).frame(maxWidth: 180).accessibilityLabel(name)
+                Slider(value: value, in: range, step: 0.1).frame(maxWidth: 180).tint(Cx.accent).accessibilityLabel(name)
                 Text(String(format: "%.1f s", value.wrappedValue)).monospacedDigit().frame(width: 44, alignment: .trailing)
             }
         }
