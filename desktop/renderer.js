@@ -6322,8 +6322,11 @@ function secondaryLine(item) {
 // ("The Weeknd, Daft Punk"), not the album's, so a compilation or a feature
 // names the right people. The album artist only when the song has none tagged.
 // Album lookups (cover art searches, Go to artist) keep using AlbumArtist.
+// A tag the server left unsplit ("The Script; will.i.am", one artist to it)
+// reads the same as two tagged artists.
 function trackArtist(item) {
-  return item?.Artists?.length ? item.Artists.join(', ') : (item?.AlbumArtist || '')
+  const names = item?.Artists?.length ? item.Artists : [item?.AlbumArtist || '']
+  return [...new Set(names.flatMap(n => String(n).split(';')).map(n => n.trim()).filter(Boolean))].join(', ')
 }
 
 function updateNowPlaying(item) {

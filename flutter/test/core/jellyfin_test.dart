@@ -350,5 +350,7 @@ void main() {
     expect(bare.artist, 'Someone', reason: 'no song artists tagged: the album artist');
     final none = j.song({'Id': 's4', 'Name': 'x', 'Artists': ['Solo']});
     expect([none.artist, none.searchArtist], ['Solo', 'Solo']);
+    final unsplit = j.song({'Id': 's5', 'Name': 'x', 'AlbumArtist': 'The Script', 'Artists': ['The Script; will.i.am', 'will.i.am']});
+    expect(unsplit.artist, 'The Script, will.i.am', reason: 'split on ; and each name once');
   });
 }

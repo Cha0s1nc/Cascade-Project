@@ -319,7 +319,12 @@ class Jellyfin {
     return Song(
       j['Name'] as String? ?? '',
       // The song's own artists; the album artist only when it has none tagged.
-      names.isNotEmpty ? names.join(', ') : albumArtist,
+      // A tag the server left unsplit ("The Script; will.i.am", one artist to
+      // it) reads the same as two tagged artists.
+      {
+        for (final n in (names.isNotEmpty ? names : [albumArtist]).expand((n) => n.split(';')))
+          if (n.trim().isNotEmpty) n.trim(),
+      }.join(', '),
       j['Album'] as String? ?? '',
       j['ProductionYear'] as int? ?? 0,
       ((j['RunTimeTicks'] as num? ?? 0) / 1e7).round(),
