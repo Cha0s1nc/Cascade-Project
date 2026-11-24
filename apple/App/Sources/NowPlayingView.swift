@@ -102,25 +102,19 @@ struct NowPlayingView: View {
                 .newLyricDefaultsPrompt()
                 // Apple Music's grabber: a full-screen cover has no sheet handle, and in
                 // lyrics mode the lyrics' own scrolling can take the swipe down.
-                // Personality v1 (Penpot "iPhone / Now Playing"): a chevron to close, and where
-                // the music is playing from in caps, in place of Apple Music's grabber.
+                // Personality v1 (Penpot "iPhone / Now Playing"): a chevron to close, in place
+                // of Apple Music's grabber. The board's "Playing from" line is left out.
                 .overlay(alignment: .top) {
-                    ZStack {
-                        if let album = player.item?.album, !album.isEmpty {
-                            Text("Playing from \(album)").cx(.caps).foregroundStyle(.white.opacity(0.6))
-                                .lineLimit(1).padding(.horizontal, 64)
+                    HStack {
+                        Button { dismiss() } label: {
+                            Image(systemName: "chevron.down").font(.system(size: 18, weight: .semibold))
+                                .frame(width: 44, height: 44).contentShape(Rectangle())
                         }
-                        HStack {
-                            Button { dismiss() } label: {
-                                Image(systemName: "chevron.down").font(.system(size: 18, weight: .semibold))
-                                    .frame(width: 44, height: 44).contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel("Close Now Playing")
-                            Spacer()
-                        }
-                        .padding(.horizontal, 14)
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Close Now Playing")
+                        Spacer()
                     }
+                    .padding(.horizontal, 14)
                     .foregroundStyle(.white)
                 }
             #endif
@@ -229,7 +223,7 @@ struct NowPlayingView: View {
             ZStack(alignment: .topLeading) {
                 VStack(spacing: 0) {
                     if mode == .artwork {
-                        // Clear of the top row (the chevron and "Playing from").
+                        // Clear of the top row (the close chevron).
                         Spacer(minLength: 44)
                         artworkSlot(side: bigSide)
                             .frame(maxWidth: .infinity)
@@ -247,7 +241,7 @@ struct NowPlayingView: View {
                                 .transition(.asymmetric(insertion: .opacity,
                                                         removal: .opacity.animation(.easeOut(duration: 0.12))))
                         }
-                        // Below the top row (the chevron and "Playing from").
+                        // Below the top row (the close chevron).
                         .padding(.top, 52)
                         Group {
                             if lyricsShowing { lyricsPanel } else { queuePanel }
