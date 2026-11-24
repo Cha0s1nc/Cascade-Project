@@ -17,7 +17,7 @@ struct MainView: View {
     /// Ties Now Playing's zoom to the mini player it grows out of.
     @Namespace private var nowPlayingZoom
 
-    enum AppTab: Hashable { case nowPlaying, home, albums, artists, songs, playlists, movies, shows, search, settings }
+    enum AppTab: Hashable { case nowPlaying, home, library, video, albums, artists, songs, playlists, movies, shows, search, settings }
 
     var body: some View {
         content
@@ -27,7 +27,19 @@ struct MainView: View {
                 set: { if !$0 { state.closeVideo() } })) {
                 if let session = state.videoSession { VideoScreen(session: session) }
             }
+            #if os(tvOS)
             .onChange(of: state.browseMode) { tab = .home }
+            #else
+            // The iPhone's Video tab is the video side; Home and Library the music side. Search
+            // and Settings keep whichever was last, so Search searches what you were browsing.
+            .onChange(of: tab, initial: true) {
+                switch tab {
+                case .video: state.browseMode = .video
+                case .home, .library: state.browseMode = .music
+                default: break
+                }
+            }
+            #endif
             .alert("Waterfall", isPresented: Binding(
                 get: { state.waterfall?.notice != nil },
                 set: { if !$0 { state.waterfall?.notice = nil } })) {
@@ -74,6 +86,15 @@ struct MainView: View {
                 }
             }
             #endif
+            #if os(iOS)
+            // Personality v1's tabs (Penpot "SwiftUI / iPhone"): Search as the system's search tab,
+            // which iOS 26 draws as the round button beside the bar.
+            Tab("Home", systemImage: "house", value: AppTab.home) { stack { HomeView() } }
+            Tab("Library", systemImage: "books.vertical", value: AppTab.library) { stack { LibraryView() } }
+            Tab("Video", systemImage: "play.rectangle", value: AppTab.video) { stack { VideoHomeView() } }
+            Tab("Settings", systemImage: "gear", value: AppTab.settings) { stack { SettingsView() } }
+            Tab(value: AppTab.search, role: .search) { stack { SearchView() } }
+            #else
             if state.browseMode == .video {
                 Tab("Home", systemImage: "house", value: AppTab.home) { stack { VideoHomeView() } }
                 Tab("Movies", systemImage: "film", value: AppTab.movies) { stack { VideoGridView(kind: .movies) } }
@@ -85,6 +106,7 @@ struct MainView: View {
                 Tab("Songs", systemImage: "music.note.list", value: AppTab.songs) { stack { SongsView() } }
                 Tab("Playlists", systemImage: "music.note.square.stack", value: AppTab.playlists) { stack { PlaylistsView() } }
             }
+            #endif
             #if os(tvOS)
             Tab("Search", systemImage: "magnifyingglass", value: AppTab.search, role: .search) { stack { SearchView() } }
             Tab("Settings", systemImage: "gear", value: AppTab.settings) { stack { SettingsView() } }

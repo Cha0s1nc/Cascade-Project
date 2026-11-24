@@ -59,7 +59,13 @@ enum CxType {
 
     var size: CGFloat {
         switch self {
+        // The iPhone's page titles are 30 (Penpot "SwiftUI / iPhone"); every other token
+        // is the same size on both.
+        #if os(iOS)
+        case .hero: 30
+        #else
         case .hero: 44
+        #endif
         case .title: 30
         case .section: 21
         case .voice, .brand: 17
@@ -85,7 +91,7 @@ enum CxType {
 extension Font {
     /// font.display (Hanken Grotesk) at a size and weight.
     static func display(_ size: CGFloat, _ weight: Font.Weight = .semibold, italic: Bool = false) -> Font {
-        .custom(CxFonts.postScript(family: "HankenGrotesk", weight: weight, italic: italic), fixedSize: size)
+        CxFonts.font(CxFonts.postScript(family: "HankenGrotesk", weight: weight, italic: italic), size)
     }
 
     /// font.body (Inter), unless the person chose a UI font of their own in the Theme panel.
@@ -97,11 +103,36 @@ extension Font {
         case .family(let name): return .custom(name, fixedSize: size).weight(weight)
         }
         #endif
-        return .custom(CxFonts.postScript(family: "Inter", weight: weight, italic: false), fixedSize: size)
+        return CxFonts.font(CxFonts.postScript(family: "Inter", weight: weight, italic: false), size)
     }
 }
 
 enum CxFonts {
+    /// A bundled face at a size. The Mac keeps the size as given (View > Zoom scales it);
+    /// the iPhone grows it with Dynamic Type, each size on the curve of the text style
+    /// nearest it, so a 34 pt title grows as a large title does and not as body text.
+    static func font(_ name: String, _ size: CGFloat) -> Font {
+        #if os(macOS)
+        .custom(name, fixedSize: size)
+        #else
+        .custom(name, size: size, relativeTo: textStyle(for: size))
+        #endif
+    }
+
+    static func textStyle(for size: CGFloat) -> Font.TextStyle {
+        switch size {
+        case 34...: .largeTitle
+        case 28..<34: .title
+        case 22..<28: .title2
+        case 20..<22: .title3
+        case 17..<20: .body
+        case 15..<17: .subheadline
+        case 13..<15: .footnote
+        case 12..<13: .caption
+        default: .caption2
+        }
+    }
+
     /// The bundled faces' PostScript names (flutter/assets/fonts, one copy for both apps).
     /// Named directly rather than by family plus weight, which falls back silently.
     static func postScript(family: String, weight: Font.Weight, italic: Bool) -> String {

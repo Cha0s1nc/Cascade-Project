@@ -446,3 +446,19 @@ func withTiebreakers(_ sortBy: String) -> String {
     guard !keys.isEmpty, !keys.contains("Random") else { return sortBy }
     return (keys + ["SortName", "AlbumArtist", "Album"].filter { !keys.contains($0) }).joined(separator: ",")
 }
+
+/// How many of each the server holds (/Items/Counts), for the iPhone's Library rows.
+/// The whole server: Jellyfin's counts take no library filter.
+public struct ItemCounts: Decodable, Sendable {
+    public var songCount: Int?
+    public var albumCount: Int?
+    public var artistCount: Int?
+    public var movieCount: Int?
+    public var seriesCount: Int?
+}
+
+public extension JellyfinClient {
+    func itemCounts() async throws -> ItemCounts {
+        try await get("/Items/Counts", params: ["userId": currentConfig.userId])
+    }
+}

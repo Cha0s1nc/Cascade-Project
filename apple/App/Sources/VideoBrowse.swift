@@ -36,6 +36,14 @@ struct VideoHomeView: View {
                 GreetingHeader()
                 #elseif os(tvOS)
                 AnnouncementsButton().padding(.horizontal)
+                #else
+                // The iPhone's Video tab: Movies and TV Shows were tabs of their own before.
+                HStack(spacing: 8) {
+                    NavigationLink(value: AppRoute.movies) { CxChipLabel(title: "Movies", symbol: "film") }
+                    NavigationLink(value: AppRoute.shows) { CxChipLabel(title: "TV Shows", symbol: "tv") }
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal)
                 #endif
                 if !resume.isEmpty { stills("Continue Watching", resume) }
                 if !movies.isEmpty { posters("Recently Added Movies", movies) }
@@ -47,7 +55,11 @@ struct VideoHomeView: View {
             }
             .padding(.vertical)
         }
+        #if os(iOS)
+        .navigationTitle("Video")
+        #else
         .navigationTitle("Home")
+        #endif
         .refreshable { await load() }
         // Reloads when the library choice changes, and after a video closes
         // (its stopped report has landed by then, so resume points are real).

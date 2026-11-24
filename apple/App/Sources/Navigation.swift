@@ -4,6 +4,8 @@ import CascadeKit
 /// Screens that are not a library item.
 enum AppRoute: Hashable {
     case search, settings, genres, history, downloads
+    /// The iPhone's Library page lists these, and its Video tab the last two.
+    case albums, artists, songs, playlists, movies, shows
     /// A downloaded album or playlist, by id.
     case downloaded(String)
     /// "favorites", "most-played", or a user smart playlist's id.
@@ -41,6 +43,12 @@ extension View {
                 case .settings: SettingsView()
                 case .genres: GenresView()
                 case .history: HistoryView()
+                case .albums: AlbumsView()
+                case .artists: ArtistsView()
+                case .songs: SongsView()
+                case .playlists: PlaylistsView()
+                case .movies: VideoGridView(kind: .movies)
+                case .shows: VideoGridView(kind: .shows)
                 case .smartPlaylist(let kind): SmartPlaylistView(kind: kind)
                 #if os(iOS) || os(macOS)
                 case .downloads: DownloadsView()
@@ -66,7 +74,8 @@ extension View {
 }
 
 #if os(iOS)
-/// Search, other devices and Settings, on every tab, and the announcements bell. Devices is here and not
+/// Downloads and other devices on every tab, and the announcements bell (Search, Settings and
+/// Video are tabs since the Personality v1 restyle). Devices is here and not
 /// only in Now Playing, which can only be opened while something plays here:
 /// the moment you want to drive another device is often when nothing does.
 private struct LibraryToolbar: ViewModifier {
@@ -77,13 +86,6 @@ private struct LibraryToolbar: ViewModifier {
         content
             .toolbar {
                 ToolbarItemGroup(placement: .topBarLeading) {
-                    @Bindable var state = state
-                    Button {
-                        state.browseMode = state.browseMode == .music ? .video : .music
-                    } label: {
-                        Image(systemName: state.browseMode == .music ? "film" : "music.note")
-                    }
-                    .accessibilityLabel(state.browseMode == .music ? "Browse Video" : "Browse Music")
                     // Only while something is in the inbox (AnnouncementsViews.swift).
                     AnnouncementsButton()
                     if state.isOffline {
@@ -91,10 +93,6 @@ private struct LibraryToolbar: ViewModifier {
                     }
                 }
                 ToolbarItemGroup(placement: .topBarTrailing) {
-                    NavigationLink(value: AppRoute.search) {
-                        Image(systemName: "magnifyingglass")
-                    }
-                    .accessibilityLabel("Search")
                     // Here rather than in Settings: it is where you go when
                     // the server cannot be reached, and every tab has it.
                     NavigationLink(value: AppRoute.downloads) {
@@ -109,10 +107,6 @@ private struct LibraryToolbar: ViewModifier {
                         }
                         .accessibilityLabel("Control Devices")
                     }
-                    NavigationLink(value: AppRoute.settings) {
-                        Image(systemName: "gear")
-                    }
-                    .accessibilityLabel("Settings")
                 }
             }
             .sheet(isPresented: $controllingDevices) { DevicesSheet().environment(state) }
