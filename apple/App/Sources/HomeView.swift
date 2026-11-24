@@ -22,6 +22,14 @@ struct HomeView: View {
     }
 
     var body: some View {
+        #if os(iOS)
+        phoneBody
+        #else
+        classicBody
+        #endif
+    }
+
+    private var classicBody: some View {
         ScrollView {
             LoadingOverlay(isLoading: isLoading, error: error, isEmpty: isEmpty, emptySymbol: "house", skeleton: .grid,
                            emptyTitle: "Nothing yet",
@@ -56,6 +64,86 @@ struct HomeView: View {
         // Keyed on the library selection, so changing it in Settings reloads.
         .task(id: state.config?.libraryIds) { await load() }
     }
+
+    #if os(iOS)
+    @State private var voice: String?
+
+    /// Penpot "iPhone / Home": the date, the greeting and its voice line, what is playing
+    /// as a card, what was played as rows, then the shelves.
+    private var phoneBody: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 28) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(Date.now.formatted(.dateTime.weekday(.wide).month(.wide).day())).cx(.caps).foregroundStyle(Cx.text3)
+                    Text(greeting).cx(.hero).foregroundStyle(Cx.text)
+                    if let voice { Text(voice).cx(.voice).foregroundStyle(Cx.text2) }
+                }
+                .padding(.horizontal, 16)
+                LoadingOverlay(isLoading: isLoading, error: error, isEmpty: isEmpty, emptySymbol: "house", skeleton: .grid,
+                               emptyTitle: "Nothing yet",
+                               emptyMessage: "What you play and what is added to the library shows up here.",
+                               retry: { Task { await load() } })
+                if let player = state.player, player.item != nil {
+                    NowPlayingCard(player: player).padding(.horizontal, 16)
+                }
+                if !recentTracks.isEmpty {
+                    VStack(alignment: .leading, spacing: 0) {
+                        CxShelfTitle(title: "Recently played", more: .history)
+                        ForEach(Array(recentTracks.prefix(5).enumerated()), id: \.element.id) { index, track in
+                            CxSongRow(track: track, second: [track.songArtist, track.album ?? ""].filter { !$0.isEmpty }.joined(separator: " \u{00B7} ")) {
+                                Task { await state.player?.play(recentTracks, startIndex: index) }
+                            }
+                        }
+                        .padding(.horizontal, 16)
+                    }
+                }
+                if !recentAlbums.isEmpty {
+                    CxShelf(title: "Recently added", items: recentAlbums) { album in
+                        NavigationLink(value: album) { CxCoverTile(itemId: album.id, title: album.name ?? "Unknown", subtitle: album.albumArtistLine) }
+                            .buttonStyle(.plain).itemContextMenu(album)
+                    }
+                }
+                if !playlists.isEmpty {
+                    CxShelf(title: RecentPlaylists.ids.isEmpty ? "Playlists" : "Recent playlists", more: .playlists, items: playlists) { list in
+                        NavigationLink(value: list) { CxCoverTile(itemId: list.id, title: list.name ?? "Playlist") }
+                            .buttonStyle(.plain).itemContextMenu(list)
+                    }
+                }
+                if !frequentTracks.isEmpty {
+                    CxShelf(title: "Frequently played", items: Array(frequentTracks.enumerated()).map(IndexedItem.init)) { entry in
+                        Button { Task { await state.player?.play(frequentTracks, startIndex: entry.index) } } label: {
+                            CxCoverTile(itemId: entry.item.albumId ?? entry.item.id, title: entry.item.name ?? "Unknown", subtitle: entry.item.songArtist)
+                        }
+                        .buttonStyle(.plain).trackContextMenu(entry.item)
+                    }
+                }
+            }
+            .padding(.top, 8).padding(.bottom, 24)
+        }
+        // The page draws its own greeting; the bar keeps "Home" for the Back button.
+        .navigationTitle("Home")
+        .toolbarTitleDisplayMode(.inline)
+        .toolbar { ToolbarItem(placement: .principal) { Text("") } }
+        .refreshable { await load() }
+        .task(id: state.config?.libraryIds) {
+            await load()
+            if let stats = try? await state.client?.homeStats() { voice = HomeVoice.line(songs: stats.songs, week: stats.week) }
+        }
+    }
+
+    private var greeting: String {
+        let hour = Calendar.current.component(.hour, from: .now)
+        let part = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening"
+        return "\(part), \(state.username ?? "there")"
+    }
+
+    private struct IndexedItem: Identifiable {
+        let index: Int
+        let item: JfItem
+        var id: String { "\(index)-\(item.id)" }
+        init(_ pair: (offset: Int, element: JfItem)) { index = pair.offset; item = pair.element }
+    }
+    #endif
 
     private func load() async {
         guard let client = state.client else { return }

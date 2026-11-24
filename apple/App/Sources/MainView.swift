@@ -189,12 +189,12 @@ struct MiniPlayer: View {
                 .overlay { LoadingCoverOverlay(active: player.isWaitingToPlay).clipShape(ProportionalRoundedRectangle()) }
             VStack(alignment: .leading, spacing: 1) {
                 Text(player.item?.name ?? "")
-                    .font(style == .bar ? .callout : .subheadline.weight(.medium))
+                    .cx(.row)
                     .lineLimit(1)
                 if style != .inline {
-                    Text(player.item?.albumArtist ?? player.item?.artists?.first ?? "")
-                        .scaledFont(.caption2)
-                        .foregroundStyle(.secondary)
+                    Text(player.item?.songArtist ?? "")
+                        .cx(.small)
+                        .foregroundStyle(Cx.text2)
                         .lineLimit(1)
                 }
             }

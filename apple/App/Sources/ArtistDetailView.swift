@@ -98,6 +98,8 @@ struct ArtistDetailView: View {
         }
     }
 
+    #endif
+
     /// "9 albums · 112 songs in your library".
     private var macMeta: String {
         guard !isLoading else { return "" }
@@ -108,7 +110,72 @@ struct ArtistDetailView: View {
         let plays = songs.reduce(0) { $0 + ($1.userData?.playCount ?? 0) }
         return plays == 0 ? "Nothing played yet." : "You\u{2019}ve played their songs \(plays) \(plays == 1 ? "time" : "times")."
     }
-    #else
+
+    #if os(iOS)
+    /// Personality v1 on the phone: the round portrait in the centered header, your top
+    /// songs, About, then the albums and similar artists as shelves.
+    private var content: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 28) {
+                CxPhoneDetailHeader(title: artist.name ?? "Unknown Artist", artId: artist.id, round: true,
+                                    meta: macMeta, voice: songs.isEmpty ? nil : macVoice) {
+                    PillButton("Play", symbol: "play.fill", primary: true, wide: true) {
+                        Task { await state.player?.play(await allSongs(), startIndex: 0) }
+                    }
+                    PillButton("Shuffle", symbol: "shuffle", wide: true) { Task { await playShuffled(await allSongs(), on: state.player) } }
+                } icons: {
+                    CxLikeButton(item: artist)
+                }
+                if !topSongs.isEmpty {
+                    VStack(alignment: .leading, spacing: 0) {
+                        CxShelfTitle(title: "Your top songs")
+                        ForEach(Array(topSongs.enumerated()), id: \.element.id) { index, track in
+                            CxSongRow(track: track, second: track.album) {
+                                Task { await state.player?.play(topSongs, startIndex: index) }
+                            }
+                        }
+                        .padding(.horizontal, 16)
+                    }
+                }
+                if let overview, !overview.isEmpty {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("About").cx(.section).foregroundStyle(Cx.text)
+                        Text(overview).cx(.regular).foregroundStyle(Cx.text2).lineSpacing(4)
+                            .lineLimit(bioExpanded ? nil : 5)
+                        if overview.count > 240 {
+                            Button(bioExpanded ? "Less" : "More") { withAnimation { bioExpanded.toggle() } }
+                                .buttonStyle(.plain).cx(.strong).foregroundStyle(Cx.accent)
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                }
+                if !albums.isEmpty {
+                    CxShelf(title: "Albums", items: albums) { album in
+                        NavigationLink(value: album) {
+                            CxCoverTile(itemId: album.id, title: album.name ?? "Unknown", subtitle: album.productionYear.map(String.init))
+                        }
+                        .buttonStyle(.plain).itemContextMenu(album)
+                    }
+                }
+                if !similar.isEmpty {
+                    CxShelf(title: "Similar artists", items: Array(similar.prefix(12))) { other in
+                        NavigationLink(value: other) {
+                            VStack(spacing: 8) {
+                                ArtworkView(itemId: other.id, size: 110).clipShape(Circle())
+                                Text(other.name ?? "").cx(.row).foregroundStyle(Cx.text).lineLimit(1)
+                            }
+                            .frame(width: 110)
+                        }
+                        .buttonStyle(.plain).itemContextMenu(other)
+                    }
+                }
+                LoadingOverlay(isLoading: isLoading, error: error, isEmpty: albums.isEmpty, skeleton: .grid)
+            }
+            .padding(.bottom, 24)
+        }
+        .toolbarTitleDisplayMode(.inline)
+    }
+    #elseif os(tvOS)
     private var content: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {

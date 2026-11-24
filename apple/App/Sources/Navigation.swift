@@ -36,8 +36,13 @@ extension View {
     /// album the same way from inside that. Stacked like that, SwiftUI could
     /// show two back buttons. Values and one destination per type cannot.
     func appNavigation() -> some View {
-        navigationDestination(for: JfItem.self) { ItemDestination(item: $0) }
+        navigationDestination(for: JfItem.self) { ItemDestination(item: $0).cxPageBackground() }
             .navigationDestination(for: AppRoute.self) { route in
+                routeView(route).cxPageBackground()
+            }
+    }
+
+    @ViewBuilder private func routeView(_ route: AppRoute) -> some View {
                 switch route {
                 case .search: SearchView()
                 case .settings: SettingsView()
@@ -57,7 +62,6 @@ extension View {
                 case .downloads, .downloaded: EmptyView()
                 #endif
                 }
-            }
     }
 
     /// iOS: search and settings sit top right on every tab's root rather than

@@ -35,6 +35,7 @@ struct SettingsView: View {
     /// than every option in one long scroll.
     @ViewBuilder private var phoneBody: some View {
         List {
+            Group {
             #if os(iOS)
             OfflineModeSection()
             Section {
@@ -92,6 +93,8 @@ struct SettingsView: View {
                 LabeledContent("Version", value: state.appVersion)
             }
             if Telemetry.available { TelemetrySection() }
+            }
+            .cxListRows()
         }
         .navigationTitle("Settings")
         .confirmationDialog("Sign out?", isPresented: $confirmingSignOut, titleVisibility: .visible) {
@@ -124,7 +127,7 @@ struct SettingsView: View {
     private func page<Content: View>(_ title: String, _ symbol: String,
                                      @ViewBuilder _ content: () -> Content) -> some View {
         NavigationLink {
-            List { content() }.navigationTitle(title)
+            List { Group { content() }.cxListRows() }.navigationTitle(title).cxPageBackground()
         } label: {
             Label(title, systemImage: symbol)
         }

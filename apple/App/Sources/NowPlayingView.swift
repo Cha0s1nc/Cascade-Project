@@ -102,14 +102,26 @@ struct NowPlayingView: View {
                 .newLyricDefaultsPrompt()
                 // Apple Music's grabber: a full-screen cover has no sheet handle, and in
                 // lyrics mode the lyrics' own scrolling can take the swipe down.
+                // Personality v1 (Penpot "iPhone / Now Playing"): a chevron to close, and where
+                // the music is playing from in caps, in place of Apple Music's grabber.
                 .overlay(alignment: .top) {
-                    Button { dismiss() } label: {
-                        Capsule().fill(.white.opacity(0.45)).frame(width: 38, height: 5)
-                            .frame(width: 88, height: 28)
-                            .contentShape(Rectangle())
+                    ZStack {
+                        if let album = player.item?.album, !album.isEmpty {
+                            Text("Playing from \(album)").cx(.caps).foregroundStyle(.white.opacity(0.6))
+                                .lineLimit(1).padding(.horizontal, 64)
+                        }
+                        HStack {
+                            Button { dismiss() } label: {
+                                Image(systemName: "chevron.down").font(.system(size: 18, weight: .semibold))
+                                    .frame(width: 44, height: 44).contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Close Now Playing")
+                            Spacer()
+                        }
+                        .padding(.horizontal, 14)
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Close Now Playing")
+                    .foregroundStyle(.white)
                 }
             #endif
         }
@@ -330,6 +342,19 @@ struct NowPlayingView: View {
     private func movingArtwork(resolution: CGFloat) -> some View {
         let big = mode == .artwork
         return ArtworkView(itemId: artId, size: resolution, fillsFrame: true, animated: true)
+            .background(alignment: .topLeading) {
+                // The board's two cards fanned out behind the cover, only behind the big one.
+                GeometryReader { g in
+                    let w = g.size.width
+                    ZStack(alignment: .topLeading) {
+                        RoundedRectangle(cornerRadius: w * 0.06).fill(Color(dark: 0x4A3A4E, light: 0xC9B8CC))
+                            .frame(width: w * 0.9, height: w * 0.9).offset(x: w * 0.16, y: w * 0.16)
+                        RoundedRectangle(cornerRadius: w * 0.06).fill(Color(dark: 0x2E5A55, light: 0xA9CCC6))
+                            .frame(width: w * 0.95, height: w * 0.95).offset(x: w * 0.08, y: w * 0.08)
+                    }
+                    .opacity(big ? 1 : 0)
+                }
+            }
             .overlay { CoverSliceOverlay(player: player, size: resolution).clipShape(ProportionalRoundedRectangle()) }
             .overlay { LoadingCoverOverlay(active: player.isWaitingToPlay, large: big).clipShape(ProportionalRoundedRectangle()) }
             .shadow(color: .black.opacity(big ? 0.35 : 0.2), radius: big ? 24 : 6, y: big ? 12 : 3)
@@ -347,16 +372,17 @@ struct NowPlayingView: View {
         HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(player.item?.name ?? "Nothing playing")
-                    .font(compact ? .headline : .title3.weight(.semibold))
+                    .font(.display(compact ? 17 : 30))
                     .lineLimit(1)
-                Text(player.item?.albumArtist ?? player.item?.artists?.first ?? "")
-                    .font(compact ? .subheadline : .title3)
+                Text(player.item?.songArtist ?? "")
+                    .font(.cxBody(compact ? 13 : 15, .medium))
                     .foregroundStyle(.white.opacity(dimInk + 0.05))
                     .lineLimit(1)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
             circleButton(isFavorite ? "heart.fill" : "heart", action: toggleFavorite)
+                .foregroundStyle(isFavorite ? Cx.like : .white)
                 .accessibilityLabel(isFavorite ? "Unfavorite" : "Favorite")
                 .sensoryFeedback(.selection, trigger: favoriteTaps)
             moreMenu
@@ -496,7 +522,7 @@ struct NowPlayingView: View {
                 let fraction = min(1, max(0, shownPosition / duration))
                 ZStack(alignment: .leading) {
                     Capsule().fill(.white.opacity(0.22))
-                    Capsule().fill(.white.opacity(isScrubbing ? 0.95 : 0.7))
+                    Capsule().fill(Cx.accent.opacity(isScrubbing ? 1 : 0.9))
                         .frame(width: fraction * bar.size.width)
                 }
                 .frame(height: isScrubbing ? 12 : 7)
@@ -550,6 +576,13 @@ struct NowPlayingView: View {
 
     private var transport: some View {
         HStack {
+            Button { player.toggleShuffle() } label: {
+                Image(systemName: "shuffle").font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(player.shuffle ? Cx.accent : .white.opacity(dimInk))
+                    .frame(width: 44, height: 44)
+            }
+            .accessibilityLabel("Shuffle")
+            .accessibilityValue(player.shuffle ? "On" : "Off")
             Spacer()
             Button { Task { await player.previous() } } label: {
                 Image(systemName: "backward.fill").font(.system(size: min(skipGlyph, 44)))
@@ -557,10 +590,14 @@ struct NowPlayingView: View {
             .accessibilityLabel("Previous")
             Spacer()
             Button { player.togglePlayPause(); playTaps += 1 } label: {
+                // The board's accent circle, glowing a little.
                 Image(systemName: player.isPaused ? "play.fill" : "pause.fill")
-                    .font(.system(size: min(playGlyph, 64)))
+                    .font(.system(size: min(playGlyph, 64) * 0.7, weight: .bold))
+                    .foregroundStyle(Cx.ink)
                     .contentTransition(.symbolEffect(.replace))
-                    .frame(width: min(playGlyph, 64) + 18, height: min(playGlyph, 64) + 18)
+                    .frame(width: min(playGlyph, 64) + 38, height: min(playGlyph, 64) + 38)
+                    .background(Cx.accent, in: Circle())
+                    .shadow(color: Cx.accent.opacity(0.45), radius: 18)
             }
             .sensoryFeedback(.impact(weight: .light), trigger: playTaps)
             .accessibilityLabel(player.isPaused ? "Play" : "Pause")
@@ -570,6 +607,13 @@ struct NowPlayingView: View {
             }
             .accessibilityLabel("Next")
             Spacer()
+            Button { player.cycleRepeat() } label: {
+                Image(systemName: player.repeatMode == .one ? "repeat.1" : "repeat").font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(player.repeatMode != .none ? Cx.accent : .white.opacity(dimInk))
+                    .frame(width: 44, height: 44)
+            }
+            .accessibilityLabel("Repeat")
+            .accessibilityValue(player.repeatMode == .one ? "One" : player.repeatMode == .all ? "All" : "Off")
         }
         .buttonStyle(.plain)
     }
@@ -624,8 +668,8 @@ struct NowPlayingView: View {
         Button { setMode(mode == target ? .artwork : target) } label: {
             Image(systemName: symbol)
                 .scaledFont(.title3)
+                .foregroundStyle(mode == target ? Cx.accent : .white)
                 .frame(width: 44, height: 44)
-                .background(Circle().fill(.white.opacity(mode == target ? 0.22 : 0)))
         }
         .buttonStyle(.plain)
         .accessibilityLabel(label)

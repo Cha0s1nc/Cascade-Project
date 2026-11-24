@@ -15,6 +15,9 @@ struct CascadeApp: App {
         // images cache-control: public, but the default cache holds only a
         // few megabytes, so scrolling back up re-downloaded every cover.
         URLCache.shared = URLCache(memoryCapacity: 64 << 20, diskCapacity: 512 << 20)
+        #if os(iOS)
+        PhoneTheme.applyNavigationBar()
+        #endif
         #if DEBUG
         PlaybackReporter.muted = UserDefaults.standard.bool(forKey: "cascade.noReports")
         #endif
@@ -51,6 +54,7 @@ struct CascadeApp: App {
         WindowGroup {
             RootView()
                 .environment(state)
+                .phoneTheme()
         }
         #endif
     }
@@ -104,7 +108,7 @@ struct RootView: View {
             } else {
                 // Wrapped so the title renders. MainView brings its own stack per
                 // tab, so this one is only for sign in.
-                NavigationStack { SignInView() }
+                NavigationStack { SignInView().cxPageBackground() }
             }
         }
         .overlay {

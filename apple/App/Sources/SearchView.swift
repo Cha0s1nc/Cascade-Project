@@ -29,6 +29,116 @@ struct SearchView: View {
     }
 
     var body: some View {
+        results
+        .navigationTitle("Search")
+        #if !os(tvOS)
+        .searchable(text: $searchText, prompt: isVideo ? "Movies, shows and episodes" : "Artists, albums and songs")
+        #endif
+        .task(id: "\(isVideo)|\(searchText)") { await search() }
+    }
+
+    #if os(iOS)
+    enum Filter: String, CaseIterable { case all = "All", songs = "Songs", albums = "Albums", artists = "Artists" }
+    @State private var filter: Filter = .all
+
+    private func include(_ f: Filter) -> Bool { filter == .all || filter == f }
+
+    /// Personality v1, as the Penpot "iPhone / Search" board: chips to narrow it, the top
+    /// result as a card, songs as rows, then artists and albums as shelves.
+    private var results: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
+                if !isVideo && hasResults {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            ForEach(Filter.allCases, id: \.self) { f in CxChip(title: f.rawValue, on: filter == f) { filter = f } }
+                        }
+                        .padding(.horizontal, 16)
+                    }
+                }
+                if !trimmed.isEmpty {
+                    LoadingOverlay(isLoading: isLoading, error: error, isEmpty: !isLoading && !hasResults,
+                                   emptySymbol: isVideo ? "film" : "music.note", skeleton: .rows)
+                }
+                if filter == .all, let top = artists.first ?? albums.first {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Top result").cx(.caps).foregroundStyle(Cx.text3).padding(.horizontal, 16)
+                        TopResultCard(item: top).padding(.horizontal, 16)
+                    }
+                }
+                if include(.songs) && !songs.isEmpty {
+                    VStack(alignment: .leading, spacing: 0) {
+                        CxShelfTitle(title: "Songs")
+                        ForEach(Array(songs.enumerated()), id: \.element.id) { index, song in
+                            CxSongRow(track: song, second: [song.songArtist, song.album ?? ""].filter { !$0.isEmpty }.joined(separator: " \u{00B7} ")) {
+                                Task { await state.player?.play(songs, startIndex: index) }
+                            }
+                        }
+                        .padding(.horizontal, 16)
+                    }
+                }
+                if include(.artists) && !artists.isEmpty {
+                    CxShelf(title: "Artists", items: artists) { artist in
+                        NavigationLink(value: artist) {
+                            VStack(spacing: 8) {
+                                ArtworkView(itemId: artist.id, size: 110).clipShape(Circle())
+                                Text(artist.name ?? "").cx(.row).foregroundStyle(Cx.text).lineLimit(1)
+                            }
+                            .frame(width: 110)
+                        }
+                        .buttonStyle(.plain).itemContextMenu(artist)
+                    }
+                }
+                if include(.albums) && !albums.isEmpty {
+                    CxShelf(title: "Albums", items: albums) { album in
+                        NavigationLink(value: album) { CxCoverTile(itemId: album.id, title: album.name ?? "Unknown", subtitle: album.albumArtistLine) }
+                            .buttonStyle(.plain).itemContextMenu(album)
+                    }
+                }
+                if !movies.isEmpty {
+                    CxShelf(title: "Movies", items: movies) { movie in
+                        NavigationLink(value: movie) { posterTile(movie) }.buttonStyle(.plain)
+                    }
+                }
+                if !shows.isEmpty {
+                    CxShelf(title: "TV shows", items: shows) { show in
+                        NavigationLink(value: show) { posterTile(show) }.buttonStyle(.plain)
+                    }
+                }
+                if !episodes.isEmpty {
+                    VStack(alignment: .leading, spacing: 0) {
+                        CxShelfTitle(title: "Episodes")
+                        ForEach(episodes) { episode in
+                            Button { Task { await state.playVideoItem(episode) } } label: {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(episode.name ?? "Unknown").cx(.row).foregroundStyle(Cx.text)
+                                    Text([episode.seriesName, VideoPlayback.episodeCode(episode)].compactMap { $0 }.joined(separator: " \u{00B7} "))
+                                        .cx(.small).foregroundStyle(Cx.text2)
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.vertical, 8)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        .padding(.horizontal, 16)
+                    }
+                }
+            }
+            .padding(.vertical, 12)
+        }
+    }
+
+    private func posterTile(_ item: JfItem) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ArtworkView(itemId: item.id, size: 110, aspect: 2.0 / 3.0)
+            Text(item.name ?? "Untitled").cx(.row).foregroundStyle(Cx.text).lineLimit(1).padding(.top, 8)
+            if let year = item.productionYear { Text(String(year)).cx(.small).foregroundStyle(Cx.text3) }
+        }
+        .frame(width: 110, alignment: .leading)
+    }
+    #else
+    private var results: some View {
         List {
             #if os(tvOS)
             TextField("Search", text: $searchText)
@@ -104,11 +214,10 @@ struct SearchView: View {
                 }
             }
         }
-        .navigationTitle("Search")
-        #if !os(tvOS)
-        .searchable(text: $searchText, prompt: isVideo ? "Movies, shows and episodes" : "Artists, albums and songs")
-        #endif
-        .task(id: "\(isVideo)|\(searchText)") {
+    }
+    #endif
+
+    private func search() async {
             artists = []; albums = []; songs = []; movies = []; shows = []; episodes = []
             guard !trimmed.isEmpty, let client = state.client else {
                 isLoading = false; error = nil
@@ -136,9 +245,42 @@ struct SearchView: View {
                 self.error = error.localizedDescription
             }
             isLoading = false
-        }
     }
 }
+
+#if os(iOS)
+/// The search's top result (Penpot "iPhone / Search"): the art (round for an artist), the
+/// name, what it is, and a play button in the accent.
+private struct TopResultCard: View {
+    let item: JfItem
+    @Environment(AppState.self) private var state
+
+    var body: some View {
+        let isArtist = item.type == "MusicArtist"
+        NavigationLink(value: item) {
+            HStack(spacing: 16) {
+                ArtworkView(itemId: item.id, size: 72).clipShape(isArtist ? AnyShape(Circle()) : AnyShape(Rectangle()))
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(item.name ?? "Unknown").font(.display(21)).foregroundStyle(Cx.text).lineLimit(1)
+                    Text(isArtist ? "Artist" : ["Album", item.albumArtistLine].compactMap { $0 }.joined(separator: " \u{00B7} "))
+                        .cx(.small).foregroundStyle(Cx.text2).lineLimit(1)
+                }
+                Spacer(minLength: 8)
+                Button { Task { await state.player?.play(await tracksOf(item, client: state.client)) } } label: {
+                    Image(systemName: "play.fill").font(.system(size: 17, weight: .bold)).foregroundStyle(Cx.ink)
+                        .frame(width: 44, height: 44).background(Cx.accent, in: Circle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Play")
+            }
+            .padding(16)
+            .background(Cx.surface, in: RoundedRectangle(cornerRadius: 18))
+            .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(Cx.line))
+        }
+        .buttonStyle(.plain)
+    }
+}
+#endif
 
 
 /// Songs 10, albums 8, artists 8, and movies and shows 8 each from the chosen

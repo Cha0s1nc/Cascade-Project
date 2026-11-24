@@ -19,7 +19,12 @@ private struct ScaledFont: ViewModifier {
     @Environment(\.uiScale) private var scale
 
     func body(content: Content) -> some View {
+        #if os(iOS)
+        // Personality v1's faces at the style's own size (PhoneTheme).
+        content.font(PhoneTheme.font(style))
+        #else
         content.font(scale == 1 ? .system(style) : .system(size: Self.points(style) * scale, weight: style == .headline ? .bold : .regular))
+        #endif
     }
 
     /// macOS's sizes for each style.

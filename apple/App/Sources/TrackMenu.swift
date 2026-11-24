@@ -335,6 +335,7 @@ struct TabStack<Content: View>: View {
             content
                 .libraryToolbar()
                 .appNavigation()
+                .cxPageBackground()
         }
         .environment(\.openItem) { path.append($0) }
         .onAppear { shown = true; take() }

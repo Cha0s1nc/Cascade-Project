@@ -211,7 +211,14 @@ struct PlaylistDetailView: View {
 
     private var listBody: some View {
         List {
+            #if os(iOS)
+            phoneHeader
+                .listRowInsets(EdgeInsets())
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
+            #else
             header
+            #endif
             ForEach(Array(tracks.enumerated()), id: \.element.entryId) { index, track in
                 Button {
                     RecentPlaylists.touch(playlist.id)
@@ -275,6 +282,33 @@ struct PlaylistDetailView: View {
         PlaylistDetails.route(capabilities: state.cascadePluginInfo.capabilities,
                               pluginPresent: state.cascadePluginApi != nil, isAdmin: state.isAdmin)
     }
+
+    #if os(iOS)
+    /// Personality v1's phone header (CxPhoneDetailHeader), as the album page's.
+    private var phoneHeader: some View {
+        let total = tracks.reduce(0.0) { $0 + ($1.runTimeTicks.map(seconds(fromTicks:)) ?? 0) }
+        let meta = tracks.isEmpty ? "" : "\(cxCount(tracks.count, "song")), \(QueueMeta.formatSpan(total))"
+        return CxPhoneDetailHeader(title: name, artId: playlist.id, meta: meta) {
+            PillButton("Play", symbol: "play.fill", primary: true, wide: true) {
+                RecentPlaylists.touch(playlist.id)
+                Task { await state.player?.play(tracks, startIndex: 0) }
+            }
+            .disabled(tracks.isEmpty)
+            PillButton("Shuffle", symbol: "shuffle", wide: true) {
+                RecentPlaylists.touch(playlist.id)
+                Task { await playShuffled(tracks, on: state.player) }
+            }
+            .disabled(tracks.isEmpty)
+        } icons: {
+            CxIconButton(symbol: "pencil", help: "Rename") { newName = name; renaming = true }
+            if detailsRoute != nil {
+                CxIconButton(symbol: "photo", help: "Picture and Description") { editingDetails = true }
+            }
+            CxIconButton(symbol: "trash", help: "Delete", tint: Cx.like) { confirmingDelete = true }
+        }
+        .buttonStyle(.plain)
+    }
+    #endif
 
     private var header: some View {
         VStack(spacing: 12) {

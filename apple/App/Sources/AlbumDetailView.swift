@@ -64,6 +64,8 @@ struct AlbumDetailView: View {
         }
     }
 
+    #endif
+
     /// "2007 · 10 songs, 42m".
     private var macMeta: String {
         let total = tracks.reduce(0.0) { $0 + ($1.runTimeTicks.map(seconds(fromTicks:)) ?? 0) }
@@ -79,7 +81,50 @@ struct AlbumDetailView: View {
         let when = PlayHistory.whenPlayed(last)
         return "You\u{2019}ve played it \(plays) \(plays == 1 ? "time" : "times")." + (when.isEmpty ? "" : " Last \(when).")
     }
-    #else
+
+    #if os(iOS)
+    /// Personality v1, as the Penpot "iPhone / Album" board: the centered header, then the
+    /// songs as numbered rows with a rule between.
+    private var content: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                CxPhoneDetailHeader(title: album.name ?? "Unknown Album", artId: album.id,
+                                    lead: album.albumArtistLine,
+                                    leadId: (album.albumArtists?.first ?? album.artistItems?.first)?.id,
+                                    meta: macMeta, voice: isLoading ? nil : macVoice) {
+                    PillButton("Play", symbol: "play.fill", primary: true, wide: true) {
+                        Task { await state.player?.play(tracks, startIndex: 0) }
+                    }
+                    .disabled(tracks.isEmpty)
+                    PillButton("Shuffle", symbol: "shuffle", wide: true) { Task { await playShuffled(tracks, on: state.player) } }
+                        .disabled(tracks.isEmpty)
+                } icons: {
+                    CxLikeButton(item: album)
+                    CxIconButton(symbol: "text.badge.plus", help: "Add to Playlist") { addingToPlaylist = true }
+                        .disabled(tracks.isEmpty || state.isOffline)
+                    DownloadButton(item: album).disabled(tracks.isEmpty)
+                }
+                VStack(alignment: .leading, spacing: 0) {
+                    let groups = discGroups
+                    ForEach(groups, id: \.disc) { group in
+                        if groups.count > 1 {
+                            Text("Disc \(group.disc)").cx(.caps).foregroundStyle(Cx.text3).padding(.top, 14).padding(.bottom, 4)
+                        }
+                        ForEach(group.tracks, id: \.index) { entry in
+                            CxSongRow(track: entry.track, number: entry.track.indexNumber ?? entry.index + 1) {
+                                Task { await state.player?.play(tracks, startIndex: entry.index) }
+                            }
+                            Cx.line.frame(height: 1).padding(.leading, 36)
+                        }
+                    }
+                    LoadingOverlay(isLoading: isLoading, error: error, isEmpty: tracks.isEmpty, skeleton: .rows)
+                }
+                .padding(.horizontal, 20).padding(.bottom, 24)
+            }
+        }
+        .toolbarTitleDisplayMode(.inline)
+    }
+    #elseif os(tvOS)
     private var content: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 16) {

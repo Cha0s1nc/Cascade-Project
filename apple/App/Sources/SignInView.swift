@@ -91,6 +91,9 @@ struct SignInView: View {
     @ViewBuilder private var content: some View {
         #if os(macOS)
         macLayout
+        #elseif os(iOS)
+        // Penpot "iPhone / Sign in": the page draws its own welcome, so the bar keeps no title.
+        form.navigationTitle("Cascade").toolbar(.hidden, for: .navigationBar)
         #else
         form.navigationTitle("Cascade")
         #endif
@@ -99,6 +102,19 @@ struct SignInView: View {
     #if !os(macOS)
     private var form: some View {
         Form {
+            Group {
+            #if os(iOS)
+            Section {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Welcome to\nyour Cascade").font(.display(40)).foregroundStyle(Cx.text)
+                    Text("Point it at your server and you\u{2019}re home.").cx(.voice).foregroundStyle(Cx.text2)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.top, 60).padding(.bottom, 12)
+            }
+            .listRowBackground(Color.clear)
+            .listRowInsets(EdgeInsets())
+            #endif
             Section("Server") {
                 TextField("https://jellyfin.example.com", text: $server)
                     .autocorrectionDisabled()
@@ -156,13 +172,23 @@ struct SignInView: View {
                 // indistinguishable from one that worked.
                 Text(error).foregroundStyle(.red)
             }
+            #if os(iOS)
+            PillButton(busy ? "Signing In\u{2026}" : "Sign In", primary: true, wide: true, action: submit)
+                .disabled(busy || server.isEmpty || username.isEmpty)
+                .opacity(busy || server.isEmpty || username.isEmpty ? 0.5 : 1)
+                .listRowBackground(Color.clear)
+                .listRowInsets(EdgeInsets())
+            #else
             Button(busy ? "Signing In\u{2026}" : "Sign In", action: submit)
                 .disabled(busy || server.isEmpty || username.isEmpty)
+            #endif
             if !disclaimer.isEmpty {
                 Section {
                     Text(disclaimer).scaledFont(.footnote).foregroundStyle(.secondary)
                 }
             }
+            }
+            .cxListRows()
         }
     }
 

@@ -462,3 +462,28 @@ public extension JellyfinClient {
         try await get("/Items/Counts", params: ["userId": currentConfig.userId])
     }
 }
+
+public extension JfItem {
+    /// Who a song is by, as the apps show it: its own artists ("The Script, will.i.am"),
+    /// not the album's, so a compilation or a feature names the right people; a tag the
+    /// server left unsplit ("A; B") reads as two. The album artist only when none are
+    /// tagged. Same rule as the desktop's trackArtist and Flutter's Song.artist.
+    var songArtist: String {
+        let names = (artists?.isEmpty == false ? artists! : [albumArtist ?? ""])
+            .flatMap { $0.split(separator: ";") }
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+        return Self.joinNames(names)
+    }
+
+    /// An album's artist as shown: "Luco; No/Me", a tag the server left unsplit, reads
+    /// "Luco, No/Me". Nil when the album has none.
+    var albumArtistLine: String? {
+        guard let albumArtist, !albumArtist.isEmpty else { return nil }
+        return Self.joinNames(albumArtist.split(separator: ";").map { $0.trimmingCharacters(in: .whitespaces) })
+    }
+
+    private static func joinNames(_ names: [String]) -> String {
+        var seen = Set<String>()
+        return names.filter { !$0.isEmpty && seen.insert($0).inserted }.joined(separator: ", ")
+    }
+}
