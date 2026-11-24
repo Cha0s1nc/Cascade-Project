@@ -56,7 +56,7 @@ struct QueueList: View {
                     .fontWeight(isCurrent ? .semibold : .regular)
             }
             .buttonStyle(.plain)
-            .listRowBackground(isCurrent ? Color.accentColor.opacity(0.15) : (deleteFromMenu ? Color.clear : nil))
+            .listRowBackground(isCurrent ? Cx.accent.opacity(0.15) : (deleteFromMenu ? Color.clear : nil))
             // Removing what is playing would leave nothing to show as
             // playing; skip it or stop instead.
             .deleteDisabled(isCurrent || deleteFromMenu)

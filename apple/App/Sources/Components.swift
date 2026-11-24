@@ -217,7 +217,7 @@ struct TrackRow: View {
                 Text(track.name ?? "Unknown")
                     .lineLimit(1)
                     .explicitMark(track.id)
-                Text(track.albumArtist ?? track.artists?.first ?? "")
+                Text(track.songArtist)
                     .scaledFont(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)

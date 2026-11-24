@@ -39,7 +39,9 @@ enum Cx {
         #if os(macOS)
         MacTheme.shared.accent
         #else
-        Color.accentColor
+        // The asset by name, not Color.accentColor: that follows the environment's tint,
+        // and in a full-screen cover (Now Playing) it fell back to the system blue.
+        Color("AccentColor")
         #endif
     }
     /// The active sidebar row and selected chips: the accent at 14%.

@@ -229,7 +229,8 @@ struct NowPlayingView: View {
             ZStack(alignment: .topLeading) {
                 VStack(spacing: 0) {
                     if mode == .artwork {
-                        Spacer(minLength: 16)
+                        // Clear of the top row (the chevron and "Playing from").
+                        Spacer(minLength: 44)
                         artworkSlot(side: bigSide)
                             .frame(maxWidth: .infinity)
                         Spacer(minLength: 24)
@@ -246,7 +247,8 @@ struct NowPlayingView: View {
                                 .transition(.asymmetric(insertion: .opacity,
                                                         removal: .opacity.animation(.easeOut(duration: 0.12))))
                         }
-                        .padding(.top, 20)
+                        // Below the top row (the chevron and "Playing from").
+                        .padding(.top, 52)
                         Group {
                             if lyricsShowing { lyricsPanel } else { queuePanel }
                         }
@@ -347,10 +349,12 @@ struct NowPlayingView: View {
                 GeometryReader { g in
                     let w = g.size.width
                     ZStack(alignment: .topLeading) {
+                        // Cover-sized and less fanned than the board's: the phone's cover is wider
+                        // than its art, and the board's spread would run to the screen's edge.
                         RoundedRectangle(cornerRadius: w * 0.06).fill(Color(dark: 0x4A3A4E, light: 0xC9B8CC))
-                            .frame(width: w * 0.9, height: w * 0.9).offset(x: w * 0.16, y: w * 0.16)
+                            .frame(width: w, height: w).offset(x: w * 0.06, y: w * 0.06)
                         RoundedRectangle(cornerRadius: w * 0.06).fill(Color(dark: 0x2E5A55, light: 0xA9CCC6))
-                            .frame(width: w * 0.95, height: w * 0.95).offset(x: w * 0.08, y: w * 0.08)
+                            .frame(width: w, height: w).offset(x: w * 0.03, y: w * 0.03)
                     }
                     .opacity(big ? 1 : 0)
                 }
@@ -745,16 +749,8 @@ struct NowPlayingView: View {
     /// next, dragged by its handles.
     private var queuePanel: some View {
         VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 10) {
-                capsuleToggle("shuffle", isOn: player.shuffle, label: "Shuffle") { player.toggleShuffle() }
-                capsuleToggle(player.repeatMode == .one ? "repeat.1" : "repeat",
-                              isOn: player.repeatMode != .none, label: "Repeat",
-                              value: player.repeatMode == .one ? "One" : player.repeatMode == .all ? "All" : "Off") {
-                    player.cycleRepeat()
-                }
-            }
-            .padding(.top, 18)
-
+            // Shuffle and repeat sit beside the transport (Penpot "iPhone / Now Playing"),
+            // so the panel starts at Up Next.
             VStack(alignment: .leading, spacing: 1) {
                 Text("Up Next").scaledFont(.headline)
                 let upcoming = max(0, player.queue.items.count - player.queue.index - 1)
@@ -762,6 +758,7 @@ struct NowPlayingView: View {
                     .scaledFont(.caption)
                     .foregroundStyle(.white.opacity(dimInk))
             }
+            .padding(.top, 18)
 
             List {
                 QueueList(player: player, upcomingOnly: true, deleteFromMenu: true)
@@ -771,19 +768,6 @@ struct NowPlayingView: View {
             // For the drag handles; rows are removed from their long-press menu.
             .environment(\.editMode, .constant(.active))
         }
-    }
-
-    private func capsuleToggle(_ symbol: String, isOn: Bool, label: String, value: String? = nil,
-                               action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: symbol)
-                .font(.body.weight(.semibold))
-                .frame(maxWidth: .infinity, minHeight: 40)
-                .background(Capsule().fill(.white.opacity(isOn ? 0.34 : 0.12)))
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(label)
-        .accessibilityValue(value ?? (isOn ? "On" : "Off"))
     }
 
     private func updateRouteName() {

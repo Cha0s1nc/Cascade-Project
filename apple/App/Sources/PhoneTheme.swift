@@ -52,10 +52,8 @@ extension View {
             // No app-wide default font: set at the root it also overrode the smaller styles
             // the system gives list section headers and footers (78 of them), so footers came
             // out at body size. Text without a font of its own stays San Francisco.
-            // The asset catalog's color by name: Cx.accent is Color.accentColor, which
-            // resolved to the system blue under these modifiers (and tinting with it again
-            // only refers it to itself).
-            .tint(Color("AccentColor"))
+            // The accent as the tint (Cx.accent is the asset catalog's color by name).
+            .tint(Cx.accent)
             // Lists and forms show the page's background instead of their own gray.
             .scrollContentBackground(.hidden)
     }

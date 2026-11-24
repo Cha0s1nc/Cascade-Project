@@ -557,6 +557,11 @@ final class AppState {
         // Rebuilt with the client so the player never holds a stale token or a
         // stale library selection.
         let player = PlaybackService(client: client, config: config)
+        #if DEBUG
+        // `-cascade.startMuted YES`: play while testing without a sound, with -cascade.noReports
+        // keeping the plays off the server.
+        if UserDefaults.standard.bool(forKey: "cascade.startMuted") { player.setMuted(true) }
+        #endif
         player.setStreamingQuality(
             wifi: StreamingQuality(stored: UserDefaults.standard.object(forKey: StreamingQuality.wifiKey)),
             cellular: StreamingQuality(stored: UserDefaults.standard.object(forKey: StreamingQuality.cellularKey)))
