@@ -1,7 +1,7 @@
 name: Flutter
 
-# Builds the Flutter app in flutter/ and makes its Windows installer and
-# Linux tarball, unsigned like the Electron installers. build.yml calls this
+# Builds the Flutter app in flutter/ and makes its Windows installer, Linux
+# tarball and Flatpak bundle, unsigned like the Electron installers. build.yml calls this
 # (build-flutter) with the release's version for a [BETA] or release naming
 # flutter; a manual run here makes a test build. A pull request touching
 # flutter/ gets only the check job (analyze and test): the maintainer builds
@@ -255,4 +255,46 @@ jobs:
         with:
           name: dist-flutter-linux
           path: flutter/dist/Cascade-Flutter-*
+          retention-days: 7
+
+  # The tarball above as a single-file Flatpak bundle, for trying the Flatpak
+  # until it is on Flathub (a bundle gets no updates). Everything that can go
+  # wrong is in one step allowed to fail: build.yml counts flutter as failed
+  # when any job here fails, and a Flatpak problem must not hold back the
+  # installer and tarball.
+  flatpak:
+    needs: linux
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist-flutter-linux
+          path: tarball
+
+      # A cold run downloads the GNOME SDK (about 1 GB) and compiles libass,
+      # libplacebo and mpv. Ubuntu 24.04 stops bubblewrap from making the user
+      # namespaces flatpak-builder needs, hence the sysctl.
+      # ponytail: no cache; add one for the SDK and flatpak-builder's state if release builds get slow.
+      - name: Build
+        id: build
+        continue-on-error: true
+        timeout-minutes: 50
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends flatpak flatpak-builder
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          mkdir -p dist
+          flutter/packaging/flatpak/build-local.sh tarball/Cascade-Flutter-linux-x64.tar.gz dist/Cascade-Flutter-linux-x64.flatpak
+
+      - if: steps.build.outcome != 'success'
+        run: echo "::warning::The Flatpak did not build; the release goes out without it."
+
+      - if: steps.build.outcome == 'success'
+        uses: actions/upload-artifact@v7
+        with:
+          name: dist-flutter-flatpak
+          path: dist/Cascade-Flutter-linux-x64.flatpak
           retention-days: 7

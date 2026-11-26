@@ -1,10 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- The app's listing for Flathub and software centers. Before submitting:
-     screenshots, and the license line checked (the artwork has its own terms). -->
+<!-- The app's listing for Flathub and software centers. package.sh adds each
+     version's <release> line to the copy in the tarball; before submitting,
+     see FLATHUB.md (screenshots are still missing). -->
 <component type="desktop-application">
   <id>xyz.chaosinc.cascade</id>
   <metadata_license>CC0-1.0</metadata_license>
-  <project_license>GPL-3.0-only</project_license>
+  <project_license>GPL-3.0-only AND LicenseRef-proprietary=https://github.com/Cha0s1nc/Cascade-Project/blob/stable/shared/assets/LICENSE</project_license>
   <name>Cascade</name>
   <summary>Music and video for your Jellyfin server</summary>
   <developer id="xyz.chaosinc">
@@ -36,7 +37,10 @@
     <color type="primary" scheme_preference="light">#9fc4ff</color>
     <color type="primary" scheme_preference="dark">#0b1a33</color>
   </branding>
+  <!-- Empty on purpose: package.sh adds the version being built. The Flathub
+       listing starts at 3.0.0 and 2.x stays off it; once 3.0.0 is out, add
+       each published version here, newest first, so the listing keeps its
+       history. -->
   <releases>
-    <release version="2.5.0" date="2026-12-01" type="development"/>
   </releases>
 </component>
