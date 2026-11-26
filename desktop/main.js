@@ -588,6 +588,10 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  // A handover marker left from a switch to the new Cascade that did not
+  // finish (or one this app was switched back from): this app is running, so
+  // it must not tell the new one to remove it later.
+  try { fs.rmSync(path.join(app.getPath('userData'), 'flutter-handover.json'), { force: true }) } catch {}
   registerModelProtocol()
   installConnectionHeaders()
   offline.registerProtocol()
@@ -1004,6 +1008,7 @@ ipcMain.handle('download-file', (_e, url, filename) => {
 
 function openUpdaterWindow(updateInfo) {
   pendingDownload = {
+    kind:        updateInfo.kind || 'desktop',
     version:     updateInfo.version,
     downloadUrl: updateInfo.downloadUrl || null,
     assetName:   updateInfo.assetName   || null,
@@ -1393,7 +1398,9 @@ async function checkForUpdates({ tryNative = false } = {}) {
     const isBetaBuild = /-b\d*$/.test(app.getVersion())
     const betaUpdates = store.get('betaUpdates', isBetaBuild)
     let candidates
-    if (betaUpdates || tryNative) {
+    // A test release list (see releaseList), for trying any update path before a real release.
+    if (process.env.CASCADE_RELEASES_URL) candidates = await releaseList()
+    else if (betaUpdates || tryNative) {
       const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases?per_page=10`, {
         headers: { 'User-Agent': 'cascade-updater' }
       })
@@ -1927,6 +1934,7 @@ function quitForInstaller() {
 // Resolves with what happened, so the update window knows whether to expect
 // the app to quit ({ quitting }) or to stay open with a fallback on screen.
 ipcMain.handle('updater:install', () => {
+  if (pendingDownload?.kind === 'flutter' && pendingDownload.destPath) return installFlutter(pendingDownload)
   if (!pendingDownload?.destPath) {
     updaterLog('Nothing has been downloaded to install, so the release page is opening instead.', 'error')
     if (pendingDownload?.releaseUrl) shell.openExternal(pendingDownload.releaseUrl)
@@ -2080,6 +2088,151 @@ ipcMain.handle('updater:install', () => {
     return handOver()
   }
 })
+
+// ── Try the new Cascade (the Flutter app) ──
+// Settings, About, on Windows and Linux: moves this computer to the Flutter
+// app through the update window, like the Mac's "Try the native Mac app".
+// This app removes nothing itself. It writes a handover marker into its data
+// folder saying how it is installed, installs the new app and quits; the new
+// app imports these settings and this sign-in (token and device id together),
+// checks the sign-in against the server, and only then removes this app
+// (flutter/lib/core/electron_handover.dart). If anything fails before that,
+// this app is still here and still works.
+//
+// CASCADE_RELEASES_URL, when set, is read instead of GitHub's release list
+// (same shape), so the switch can be tried before a release has the new app.
+const FLUTTER_NOTES = `### The new Cascade
+- Rebuilt from the ground up: it plays the same library with far less memory and CPU.
+- Your settings and your sign-in come with you. This app is removed once the new one has signed in.
+- You can switch back from the new app's Settings, About, until Cascade 3.0.`
+
+async function releaseList() {
+  const url = process.env.CASCADE_RELEASES_URL || `https://api.github.com/repos/${GITHUB_REPO}/releases?per_page=10`
+  const res = await fetch(url, { headers: { 'User-Agent': 'cascade-updater' }, signal: AbortSignal.timeout(20_000) })
+  if (!res.ok) throw new Error(`release list: HTTP ${res.status}`)
+  const list = await res.json()
+  return Array.isArray(list) ? list.filter(r => r && typeof r === 'object' && !r.draft) : []
+}
+
+ipcMain.handle('can-try-flutter', () => !!UpdateRelease.flutterAssetName(process.platform, process.arch))
+
+ipcMain.handle('try-flutter', async () => {
+  if (!UpdateRelease.flutterAssetName(process.platform, process.arch)) {
+    return { hasUpdate: false, error: 'The new Cascade is for Windows and Linux (x64).' }
+  }
+  if (updaterWindow && !updaterWindow.isDestroyed()) {
+    updaterWindow.focus()
+    return { hasUpdate: false, error: 'Finish or close the update window first.' }
+  }
+  try {
+    for (const r of await releaseList()) {
+      const build = UpdateRelease.flutterBuildOf(r, await fetchVersionsFile(r), process.platform, process.arch)
+      if (!build) continue
+      openUpdaterWindow({
+        kind: 'flutter', version: build.version, releaseNotes: FLUTTER_NOTES,
+        releaseDate: r.published_at || '', releaseUrl: r.html_url || '',
+        downloadUrl: build.asset.browser_download_url, assetName: build.asset.name, digest: build.asset.digest || null,
+      })
+      return { hasUpdate: true }
+    }
+    return { hasUpdate: false, error: 'No release has the new Cascade yet.' }
+  } catch (err) {
+    return { hasUpdate: false, error: err.message }
+  }
+})
+
+const FLUTTER_LINUX_DIR = path.join(os.homedir(), '.local', 'share', 'cascade-flutter')
+const FLUTTER_LIBS_HINT = 'On Debian or Ubuntu: sudo apt install libgtk-3-0t64 libmpv2 libwebkit2gtk-4.1-0. On Fedora: sudo dnf install gtk3 mpv-libs webkit2gtk4.1. On Arch: sudo pacman -S gtk3 mpv webkit2gtk-4.1.'
+
+// What the new app needs to remove this one: how it is installed and where.
+function writeHandoverMarker() {
+  const marker = {
+    from: app.getVersion(), at: new Date().toISOString(), platform: process.platform,
+    kind: process.platform === 'win32' ? 'nsis' : linuxPackageKind(),
+    uninstaller: process.platform === 'win32' ? path.join(path.dirname(process.execPath), 'Uninstall Cascade.exe') : null,
+    appImage: process.env.APPIMAGE || null,
+    // A development run is not an install: the new app must leave it alone.
+    packaged: app.isPackaged,
+  }
+  fs.writeFileSync(path.join(app.getPath('userData'), 'flutter-handover.json'), JSON.stringify(marker, null, 2))
+}
+
+// Every library the new app's binary and plugins need, missing ones by name.
+function missingLibraries(dir) {
+  const files = [path.join(dir, 'cascade'), ...fs.readdirSync(path.join(dir, 'lib')).filter(f => f.endsWith('.so')).map(f => path.join(dir, 'lib', f))]
+  const missing = new Set()
+  for (const f of files) {
+    const out = require('child_process').spawnSync('ldd', [f], { encoding: 'utf8', env: { ...process.env, LD_LIBRARY_PATH: path.join(dir, 'lib') } })
+    for (const m of (out.stdout || '').matchAll(/^\s*(\S+) => not found/gm)) missing.add(m[1])
+    if (/GLIBC_\S+' not found/.test(`${out.stdout}${out.stderr}`)) missing.add('a newer glibc (2.39 or later)')
+  }
+  return [...missing]
+}
+
+async function installFlutter(pending) {
+  const fail = (why) => {
+    updaterLog(why, 'error')
+    try { fs.rmSync(path.join(app.getPath('userData'), 'flutter-handover.json'), { force: true }) } catch {}
+    return { fallback: true }
+  }
+  if (process.platform === 'win32') {
+    try {
+      writeHandoverMarker()
+      const child = spawn(pending.destPath, ['/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/relaunch=1'], { detached: true, stdio: 'ignore' })
+      child.unref()
+      return await new Promise((resolve) => {
+        const t = setTimeout(() => {
+          updaterLog('Installing the new Cascade. This app closes, and the new one opens with your settings.', 'info')
+          quitForInstaller()
+          resolve({ quitting: true })
+        }, 1000)
+        child.on('error', (err) => { clearTimeout(t); resolve(fail(`Could not start the installer (${err.message}).`)) })
+      })
+    } catch (err) {
+      return fail(`Could not start the new Cascade's installer (${err.message}).`)
+    }
+  }
+
+  // Linux: the tarball, unpacked beside where it goes, checked, then swapped in.
+  const staging = `${FLUTTER_LINUX_DIR}.new`
+  try {
+    fs.rmSync(staging, { recursive: true, force: true })
+    fs.mkdirSync(staging, { recursive: true })
+    const tar = require('child_process').spawnSync('tar', ['-xzf', pending.destPath, '-C', staging], { encoding: 'utf8' })
+    const unpacked = path.join(staging, 'cascade-flutter')
+    if (tar.status !== 0 || !fs.existsSync(path.join(unpacked, 'cascade'))) throw new Error(`could not unpack it: ${(tar.stderr || '').trim()}`)
+    const missing = missingLibraries(unpacked)
+    if (missing.length) {
+      fs.rmSync(staging, { recursive: true, force: true })
+      return fail(`The new Cascade needs libraries this computer does not have: ${missing.join(', ')}. ${FLUTTER_LIBS_HINT} Then try again.`)
+    }
+    fs.rmSync(FLUTTER_LINUX_DIR, { recursive: true, force: true })
+    fs.renameSync(unpacked, FLUTTER_LINUX_DIR)
+    fs.rmSync(staging, { recursive: true, force: true })
+    const id = 'xyz.chaosinc.cascade'
+    const icons = path.join(os.homedir(), '.local', 'share', 'icons', 'hicolor', '512x512', 'apps')
+    fs.mkdirSync(icons, { recursive: true })
+    fs.copyFileSync(path.join(FLUTTER_LINUX_DIR, 'icon-512.png'), path.join(icons, `${id}.png`))
+    const apps = path.join(os.homedir(), '.local', 'share', 'applications')
+    fs.mkdirSync(apps, { recursive: true })
+    fs.writeFileSync(path.join(apps, `${id}.desktop`), [
+      '[Desktop Entry]', 'Type=Application', 'Name=Cascade', 'Comment=Jellyfin music and video client',
+      `Exec="${path.join(FLUTTER_LINUX_DIR, 'cascade')}" %U`, `Icon=${id}`, 'Terminal=false',
+      'Categories=AudioVideo;Audio;Player;', `StartupWMClass=${id}`, '',
+    ].join('\n'))
+    writeHandoverMarker()
+    // Starts once this process is gone, so the new app reads a settled config.json.
+    spawn('/bin/bash', ['-c', 'while kill -0 "$1" 2>/dev/null; do sleep 0.2; done; exec "$2"', 'start', String(process.pid), path.join(FLUTTER_LINUX_DIR, 'cascade')], {
+      detached: true, stdio: 'ignore',
+    }).unref()
+    updaterLog('The new Cascade is installed. This app closes, and the new one opens with your settings.', 'info')
+    setTimeout(quitForInstaller, 500)
+    return { quitting: true }
+  } catch (err) {
+    try { fs.rmSync(staging, { recursive: true, force: true }) } catch {}
+    return fail(`Could not install the new Cascade (${err.message}).`)
+  }
+}
 
 ipcMain.handle('updater:dismiss', () => {
   if (updaterWindow && !updaterWindow.isDestroyed()) updaterWindow.close()

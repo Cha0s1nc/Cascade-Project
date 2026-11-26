@@ -167,3 +167,37 @@ ReleaseAsset? pickInstaller(ReleaseLike release, String version, InstallTarget t
   }
   return null;
 }
+
+// The Flutter app --------------------------------------------------------------
+// Its files carry no version in their names, so a release proves a Flutter
+// build by versions.json's `flutter` entry plus this computer's file in the
+// same release; no tag fallback. Same as desktop/src/core/update-release.ts.
+
+/// The Flutter app's file for this computer ([os] as Platform.operatingSystem), or null.
+String? flutterAssetName(String os, String arch) => switch ((os, arch)) {
+  ('windows', 'x64') => 'Cascade-Flutter-Setup-x64.exe',
+  ('linux', 'x64') => 'Cascade-Flutter-linux-x64.tar.gz',
+  _ => null,
+};
+
+/// versions.json's `flutter` entry, or null: a bad entry is no entry.
+String? flutterVersionOf(Object? versionsText) {
+  if (versionsText is! String || versionsText.length > versionsMaxBytes) return null;
+  try {
+    final data = _jsonDecode(versionsText);
+    final v = data is Map ? data['flutter'] : null;
+    return isReleaseVersion(v) ? v as String : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+/// The release's Flutter build for this computer: its version and file, or null.
+({String version, ReleaseAsset asset})? flutterBuildOf(ReleaseLike release, Object? versionsText, String os, String arch) {
+  final version = flutterVersionOf(versionsText), name = flutterAssetName(os, arch);
+  if (version == null || name == null) return null;
+  for (final a in releaseAssets(release)) {
+    if (a['name'] == name) return (version: version, asset: a);
+  }
+  return null;
+}

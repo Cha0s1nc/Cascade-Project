@@ -26,7 +26,10 @@ AppVerName=Cascade Flutter {#AppVersion}
 AppPublisher=cha0s_1nc
 AppPublisherURL=https://cascade.chaosinc.xyz
 VersionInfoVersion={#NumericVersion}
-DefaultDirName={localappdata}\Programs\Cascade Flutter
+; Not "Cascade ...": electron-builder's installer and uninstaller stop every
+; process whose path starts with the Electron app's folder (Programs\Cascade),
+; which would take this app down mid-switch. The Linux app id instead.
+DefaultDirName={localappdata}\Programs\xyz.chaosinc.cascade
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
 ArchitecturesAllowed=x64compatible
@@ -57,3 +60,12 @@ Name: "{autodesktop}\Cascade Flutter"; Filename: "{app}\cascade.exe"; Tasks: des
 
 [Run]
 Filename: "{app}\cascade.exe"; Description: "{cm:LaunchProgram,Cascade Flutter}"; Flags: nowait postinstall skipifsilent
+; The app's own updater runs this silently with /relaunch=1 and has already
+; quit: start the new version (lib/core/updater.dart).
+Filename: "{app}\cascade.exe"; Flags: nowait; Check: Relaunch
+
+[Code]
+function Relaunch: Boolean;
+begin
+  Result := ExpandConstant('{param:relaunch|0}') = '1';
+end;

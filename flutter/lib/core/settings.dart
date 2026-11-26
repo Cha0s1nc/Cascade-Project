@@ -7,6 +7,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:cascade/core/jellyfin.dart' show appVersion;
 import 'package:cascade/core/playback.dart';
 
 class Settings extends ChangeNotifier {
@@ -100,6 +101,15 @@ class Settings extends ChangeNotifier {
   void setRadioEnabled(bool on) => _changed(_p?.setBool('radioEnabled', radioEnabled = on));
 
   void setNoReports(bool on) => _changed(_p?.setBool('noReports', noReports = on));
+
+  /// Updates include betas: on by default for a beta build, as in the desktop
+  /// app, until chosen either way.
+  late bool betaUpdates = _p?.getBool('betaUpdates') ?? appVersion.contains('-b');
+  void setBetaUpdates(bool on) => _changed(_p?.setBool('betaUpdates', betaUpdates = on));
+
+  /// When the updater last looked on its own, so it does at most once a day.
+  DateTime get lastUpdateCheck => DateTime.fromMillisecondsSinceEpoch(_p?.getInt('lastUpdateCheck') ?? 0);
+  void markUpdateCheck() => _p?.setInt('lastUpdateCheck', DateTime.now().millisecondsSinceEpoch);
 
   /// The lyrics source to use: 'auto' or one of lyricSources (desktop's key).
   late String lyricsSource = _p?.getString('lyricsForcedSource') ?? 'auto';

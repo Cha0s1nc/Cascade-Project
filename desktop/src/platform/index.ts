@@ -340,6 +340,11 @@ export interface DesktopCapabilities {
   /** Settings, About, "Try the native Mac app": moves this Mac to the native
    *  build through the update window; see main.js 'try-native-mac'. */
   tryNativeMac?(): Promise<UpdateCheckResult>
+  /** Whether this computer can run the new (Flutter) Cascade: Windows or Linux, x64. */
+  canTryFlutter?(): Promise<boolean>
+  /** Settings, About, "Try the new Cascade": moves this computer to the
+   *  Flutter app through the update window; see main.js 'try-flutter'. */
+  tryFlutter?(): Promise<UpdateCheckResult>
   isPackaged?(): Promise<boolean>
   /** True when the `.cascade-debug` sentinel file was present at startup.
    *  Gates the renderer's debug panel - see main.js debugSentinelPresent(). */
@@ -458,6 +463,8 @@ export interface ElectronPlatform extends Platform, DesktopCapabilities {
   fetchAnnouncements: NonNullable<DesktopCapabilities['fetchAnnouncements']>
   canTryNativeMac: NonNullable<DesktopCapabilities['canTryNativeMac']>
   tryNativeMac: NonNullable<DesktopCapabilities['tryNativeMac']>
+  canTryFlutter: NonNullable<DesktopCapabilities['canTryFlutter']>
+  tryFlutter: NonNullable<DesktopCapabilities['tryFlutter']>
   isPackaged: NonNullable<DesktopCapabilities['isPackaged']>
   isDebugMode: NonNullable<DesktopCapabilities['isDebugMode']>
   tuningBake: NonNullable<DesktopCapabilities['tuningBake']>

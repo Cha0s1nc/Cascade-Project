@@ -125,6 +125,6 @@ Kept apart from the parity lines above, so 3.0's parity check does not count the
 - Windows installer: built - Inno Setup, per user, beside the Electron app (`packaging/windows/cascade.iss`), unsigned
 - Linux package: built - .tar.gz for advanced users (`packaging/linux/package.sh`), x64, glibc 2.39 or newer. The .deb was dropped 2026-11-23: the main Linux download is to be a Flatpak on Flathub (not built). No .rpm or AppImage
 - Android APK: not built
-- Updater: not built
+- Updater: built (core/updater.dart): the Windows installer runs silently and relaunches (/relaunch=1), the Linux tarball is swapped beside itself; off in the Flatpak, on Android and macOS and in development builds. Tried on winvm and mintvm against a fake release list. Switching from and back to Electron: built and tried on both VMs (core/electron_handover.dart, core/switch_back.dart)
 - Versions in lockstep, release marker, changelog: not built
 - Settings import from Electron: built - Settings > About copies the desktop app's config.json settings (not its sign-in) and asks for a restart

@@ -245,3 +245,36 @@ export function pickInstaller(release: ReleaseLike, version: string, target: Ins
 
   return undefined
 }
+
+// ── The Flutter app ──
+// Its files carry no version in their names (see PLATFORM_FILES.flutter in
+// release-plan.ts), so a release proves a Flutter build by versions.json's
+// `flutter` entry plus this computer's file being in the same release; there
+// is no tag fallback. Electron's "Try the new Cascade" and the Flutter app's
+// own updater (flutter/lib/core/update_release.dart) both read releases this way.
+
+/** The Flutter app's file for this computer, or undefined where there is none. */
+export function flutterAssetName(platform: string, arch: string): string | undefined {
+  if (arch !== 'x64') return undefined
+  if (platform === 'win32') return 'Cascade-Flutter-Setup-x64.exe'
+  if (platform === 'linux') return 'Cascade-Flutter-linux-x64.tar.gz'
+  return undefined
+}
+
+/** versions.json's `flutter` entry, or null: a bad entry is no entry, and never spoils the desktop one. */
+export function flutterVersionOf(versionsText: unknown): string | null {
+  if (typeof versionsText !== 'string' || versionsText.length > VERSIONS_MAX_BYTES) return null
+  try {
+    const data = JSON.parse(versionsText)
+    const v = data && typeof data === 'object' && !Array.isArray(data) && Object.prototype.hasOwnProperty.call(data, 'flutter') ? data.flutter : null
+    return isReleaseVersion(v) ? v : null
+  } catch { return null }
+}
+
+/** The release's Flutter build for this computer: its version and file, or null. */
+export function flutterBuildOf(release: ReleaseLike, versionsText: unknown, platform: string, arch: string): { version: string; asset: ReleaseAsset } | null {
+  const version = flutterVersionOf(versionsText)
+  const name = flutterAssetName(platform, arch)
+  const asset = name ? releaseAssets(release).find(a => a.name === name) : undefined
+  return version && asset ? { version, asset } : null
+}

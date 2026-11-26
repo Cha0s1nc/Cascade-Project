@@ -57,9 +57,42 @@ Map<String, Object> electronSettings(Map config) {
   return out;
 }
 
+/// This app's settings written back over [config] (the desktop's config.json),
+/// for switching back: only keys the desktop file already has, in the type it
+/// keeps them in (some switches are the strings 'true' and 'false' there),
+/// plus the sign-in. Every other key stays as it was.
+Map<String, Object?> electronExport(SharedPreferences p, Map config) {
+  final out = <String, Object?>{for (final e in config.entries) '${e.key}': e.value};
+  for (final k in [..._bools, ..._ints, ..._doubles, ..._strings, ..._json]) {
+    final v = p.get(k), was = config[k];
+    if (v == null || !config.containsKey(k)) continue;
+    out[k] = was is String && v is! String ? '$v' : v;
+  }
+  for (final k in _lists) {
+    final v = p.getStringList(k);
+    if (v != null && config.containsKey(k)) out[k] = config[k] is String ? jsonEncode(v) : v;
+  }
+  for (final (mine, theirs) in [('server', 'serverUrl'), ('token', 'token'), ('userId', 'userId'), ('userName', 'username'), ('deviceId', 'deviceId')]) {
+    final v = p.getString(mine);
+    if (v != null) out[theirs] = v;
+  }
+  return out;
+}
+
+/// Where the desktop app's config.json goes when it has none yet.
+File electronConfigTarget() {
+  final env = Platform.environment;
+  final base = Platform.isWindows ? env['APPDATA']! : (env['XDG_CONFIG_HOME'] ?? '${env['HOME']}/.config');
+  if (env['CASCADE_ELECTRON_CONFIG'] case final path? when path.isNotEmpty) return File(path);
+  return electronConfigFile() ?? File('$base${Platform.pathSeparator}cascade${Platform.pathSeparator}config.json'); // the desktop app's own folder name
+}
+
 /// Where the desktop app keeps config.json, if it is on this computer.
+/// CASCADE_ELECTRON_CONFIG names another file, for testing the switch either
+/// way against a test profile instead of the real one (like the Swift app's).
 File? electronConfigFile() {
   final env = Platform.environment;
+  if (env['CASCADE_ELECTRON_CONFIG'] case final path? when path.isNotEmpty) return File(path).existsSync() ? File(path) : null;
   final bases = Platform.isWindows
       ? [env['APPDATA']]
       : Platform.isLinux

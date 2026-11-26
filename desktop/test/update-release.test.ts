@@ -282,3 +282,17 @@ test('a release holding only Flutter files offers Electron nothing', () => {
   assert.equal(desktopBuildOf(r, null), null)
   assert.equal(desktopBuildOf(release('v2.5.0', 'Cascade-Flutter-2.5.0-Setup.exe'), null), null)
 })
+
+test('flutterBuildOf: the flutter entry plus this computer\'s file, nothing else', async () => {
+  const { flutterBuildOf, flutterVersionOf } = await import('../src/core/update-release.ts')
+  const rel = (names: string[]) => ({ tag_name: 'v2.5.0', assets: names.map(name => ({ name, browser_download_url: `https://example.invalid/${name}` })) })
+  const both = rel(['Cascade-Flutter-Setup-x64.exe', 'Cascade-Flutter-linux-x64.tar.gz', 'versions.json'])
+  assert.equal(flutterBuildOf(both, '{"desktop":"2.4.1","flutter":"2.5.0"}', 'win32', 'x64')?.asset.name, 'Cascade-Flutter-Setup-x64.exe')
+  assert.equal(flutterBuildOf(both, '{"flutter":"2.5.0-b2"}', 'linux', 'x64')?.version, '2.5.0-b2')
+  assert.equal(flutterBuildOf(both, '{"desktop":"2.4.1"}', 'win32', 'x64'), null)
+  assert.equal(flutterBuildOf(rel(['Cascade-Flutter-Setup-x64.exe']), '{"flutter":"2.5.0"}', 'linux', 'x64'), null)
+  assert.equal(flutterBuildOf(both, '{"flutter":"2.5.0"}', 'darwin', 'arm64'), null)
+  for (const t of ['{"flutter":"v2.5.0"}', '{"flutter":2.5}', '[]', 'nope', null]) assert.equal(flutterVersionOf(t), null)
+  // The desktop entry reads as before when the flutter one is bad.
+  assert.deepEqual(parseVersionsFile('{"desktop":"2.4.1","flutter":"bad"}'), { ok: true, desktop: '2.4.1', mac: null })
+})

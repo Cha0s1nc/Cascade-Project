@@ -8479,6 +8479,22 @@ document.getElementById('btn-check-updates').addEventListener('click', async () 
   }
 })
 
+// Windows and Linux (x64): the new Cascade, through the update window like an
+// update; the new app does the rest (main.js 'try-flutter').
+window.cascade.canTryFlutter?.().then(can => {
+  document.getElementById('flutter-row').style.display = can ? '' : 'none'
+}).catch(() => {})
+document.getElementById('btn-try-flutter')?.addEventListener('click', async () => {
+  const btn = /** @type {HTMLButtonElement} */ (document.getElementById('btn-try-flutter'))
+  btn.disabled = true
+  try {
+    const result = await window.cascade.tryFlutter()
+    if (!result?.hasUpdate) showNotice(result?.error || 'Could not look for the new Cascade.', 'The new Cascade')
+  } finally {
+    btn.disabled = false
+  }
+})
+
 // Only Macs that can run the native app see this row. The button hands off to
 // the update window, which downloads, checks and swaps it in like any update.
 if (window.cascade.platform === 'darwin') {

@@ -14,12 +14,14 @@ import 'package:cascade/ui/first_run.dart';
 import 'package:cascade/core/benchmark.dart';
 import 'package:cascade/core/connection_headers.dart';
 import 'package:cascade/core/data_move.dart';
+import 'package:cascade/core/electron_handover.dart';
 import 'package:cascade/core/log.dart';
 import 'package:cascade/core/downloads.dart';
 import 'package:cascade/core/jellyfin.dart';
 import 'package:cascade/core/library.dart';
 import 'package:cascade/core/list_cache.dart';
 import 'package:cascade/core/settings.dart';
+import 'package:cascade/core/updater.dart';
 import 'package:cascade/platform/discord.dart';
 import 'package:cascade/platform/media_controls.dart';
 import 'package:cascade/platform/remote.dart';
@@ -28,6 +30,7 @@ import 'package:cascade/ui/panels.dart';
 import 'package:cascade/ui/phone.dart';
 import 'package:cascade/engine/player.dart';
 import 'package:cascade/ui/sign_in.dart';
+import 'package:cascade/ui/update_dialog.dart';
 import 'package:cascade/ui/lyrics_view.dart';
 import 'package:cascade/ui/pages/browse.dart' show videoPlayer;
 import 'package:cascade/ui/title_bar.dart';
@@ -45,7 +48,11 @@ Future<void> main(List<String> args) async {
   } catch (e) {
     log('app data move failed: $e');
   }
+  _benchmarkLaunch = benchmarkArgs(args) != null;
+  cleanUpAfterUpdate();
   await loadConnectionHeaders();
+  // Before the saved sign-in is read: a switch from the classic app brings one.
+  await runElectronHandover();
   MediaKit.ensureInitialized();
   await setUpWindow();
   await loadTuning();
@@ -60,6 +67,9 @@ Future<void> main(List<String> args) async {
   runApp(CascadeApp(player: player, session: await Jellyfin.restore(), downloads: downloads, cacheDir: cacheDir));
   if (benchmarkArgs(args) case final bench?) _autoBenchmark(player, bench);
 }
+
+/// Started with --benchmark: no update offer over the run.
+bool _benchmarkLaunch = false;
 
 /// Started with --benchmark (core/benchmark.dart): once signed in, run it,
 /// write the report, say where and quit (exit code 1 for a run that failed).
@@ -168,7 +178,17 @@ class _CascadeAppState extends State<CascadeApp> with WidgetsBindingObserver {
     _library.onLoaded = () {
       widget.player.restore();
       final c = _navigator.currentContext;
-      if (c != null) maybeShowFirstRun(c, _library, widget.player.settings);
+      if (c != null && handoverResult != null) {
+        toast(c, handoverResult!);
+        handoverResult = null;
+      }
+      // The update offer (at most once a day, not in a --benchmark run) waits
+      // for the first-run wizard to close rather than sitting on top of it.
+      if (c != null) {
+        maybeShowFirstRun(c, _library, widget.player.settings).then((_) {
+          if (c.mounted && !_library.demo && !_benchmarkLaunch) maybeOfferUpdate(c, widget.player.settings);
+        });
+      }
     };
     // Likes go through the library, so they reach the server.
     widget.player.likedOf = (s) => _library.isFavorite(s.id, s.favorite);

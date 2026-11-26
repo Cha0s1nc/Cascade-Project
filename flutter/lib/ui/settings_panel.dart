@@ -17,6 +17,9 @@ import 'package:cascade/core/library.dart';
 import 'package:cascade/core/log.dart';
 import 'package:cascade/core/nav.dart';
 import 'package:cascade/core/playback.dart';
+import 'package:cascade/core/settings.dart';
+import 'package:cascade/core/switch_back.dart';
+import 'package:cascade/core/updater.dart';
 import 'package:cascade/engine/player.dart';
 import 'package:cascade/ui/audio_calibration.dart';
 import 'package:cascade/ui/controls.dart';
@@ -24,6 +27,7 @@ import 'package:cascade/ui/eq_editor.dart';
 import 'package:cascade/ui/pages/common.dart';
 import 'package:cascade/ui/scopes.dart';
 import 'package:cascade/ui/style_menu.dart';
+import 'package:cascade/ui/update_dialog.dart';
 import 'package:cascade/ui/widgets.dart';
 
 const _tabs = [
@@ -349,7 +353,12 @@ class _SettingsPanelState extends State<SettingsPanel> {
     ];
   }
 
-  List<Widget> _about(BuildContext context) => [
+  List<Widget> _about(BuildContext context) {
+    final s = PlayerScope.of(context).settings;
+    return _aboutGroups(context, s);
+  }
+
+  List<Widget> _aboutGroups(BuildContext context, Settings s) => [
     SettingsGroup('About', [
       const SettingRow('Cascade for Windows, Linux and Android', subtitle: 'Version $appVersion'),
       const SettingRow('Website', subtitle: 'cascade.chaosinc.xyz'),
@@ -360,6 +369,17 @@ class _SettingsPanelState extends State<SettingsPanel> {
         trailing: _Btn('Run', () => _runBenchmark(context)),
       ),
     ]),
+    if (updateKind != null)
+      SettingsGroup('Updates', [
+        SettingRow('Check for updates', subtitle: 'Cascade also looks once a day on its own', trailing: _Btn('Check now', () => maybeOfferUpdate(context, s, manual: true))),
+        ToggleRow('Beta updates', s.betaUpdates, s.setBetaUpdates, subtitle: 'Offer test versions before they are released'),
+        if (canSwitchBack)
+          SettingRow(
+            'Switch back to the classic app',
+            subtitle: 'Your settings and sign-in go with you. Until Cascade 3.0.',
+            trailing: _Btn('Switch back', () => showSwitchBackDialog(context)),
+          ),
+      ]),
     SettingsGroup('Help', [
       SettingRow(
         'Keyboard shortcuts',
