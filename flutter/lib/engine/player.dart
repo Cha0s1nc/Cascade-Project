@@ -407,7 +407,16 @@ class Player extends ChangeNotifier {
 
   /// mpv's volume is cubic (gain = (volume/100)^3), so a linear gain, the
   /// desktop's kind, goes in as its cube root.
-  Future<void> _applyVolume(_Deck d) => d.p.setVolume(100 * pow(volume * d.gain * d.norm, 1 / 3).toDouble());
+  Future<void> _applyVolume(_Deck d) => d.p.setVolume(silent ? 0 : 100 * pow(volume * d.gain * d.norm, 1 / 3).toDouble());
+
+  /// No sound, without touching the volume or what is saved: benchmark mode.
+  bool silent = false;
+  Future<void> setSilent(bool on) async {
+    silent = on;
+    for (final d in _decks) {
+      await _applyVolume(d);
+    }
+  }
 
   Future<void> _applyEq(_Deck d) async {
     final native = d.p.platform;

@@ -667,6 +667,83 @@ ipcMain.handle('app-metrics', () => app.getAppMetrics().map(m => ({
   wakeups: m.cpu.idleWakeupsPerSecond,
 })))
 
+// ── Benchmark mode ──
+// Settings > About > Run benchmark, or `--benchmark` on the command line, which
+// runs it once signed in, writes the report and quits. The renderer drives the
+// run (runBenchmark); main measures, since only main sees every process. The
+// Flutter app writes the same report (flutter/lib/core/benchmark.dart), so the
+// two compare on one machine. Options: --benchmark-track=<item id> (default:
+// the library's first song by name), --benchmark-settle=<s> (20),
+// --benchmark-seconds=<s> (30), --benchmark-out=<file> (default: a file in
+// <userData>/benchmarks).
+function benchArg(name) {
+  const hit = process.argv.find(a => a.startsWith(`--${name}=`))
+  return hit ? hit.slice(name.length + 3) : undefined
+}
+const BENCH_AUTO = process.argv.includes('--benchmark')
+
+ipcMain.handle('benchmark-args', () => {
+  if (!BENCH_AUTO) return null
+  const num = (v, d) => (Number.isFinite(Number(v)) && Number(v) > 0 ? Number(v) : d)
+  return { track: benchArg('benchmark-track') || undefined, settle: num(benchArg('benchmark-settle'), 20), seconds: num(benchArg('benchmark-seconds'), 30) }
+})
+
+// Memory as each OS counts it best: PSS on Linux (shared pages split between
+// the processes sharing them, so Electron's many processes are not counted
+// several times over), private bytes on Windows (what Task Manager's commit
+// column shows), the working set elsewhere.
+const BENCH_MEMORY_KIND = process.platform === 'linux' ? 'pss' : process.platform === 'win32' ? 'private' : 'rss'
+function benchMemoryKB(m) {
+  if (process.platform === 'linux') {
+    try {
+      const pss = /^Pss:\s+(\d+)/m.exec(fs.readFileSync(`/proc/${m.pid}/smaps_rollup`, 'utf8'))
+      if (pss) return Number(pss[1])
+    } catch {}
+  }
+  if (process.platform === 'win32' && m.memory.privateBytes != null) return m.memory.privateBytes
+  return m.memory.workingSetSize
+}
+
+// CPU over `seconds` as a percentage of one core, summed over every process,
+// and memory at the end of it.
+ipcMain.handle('benchmark-measure', async (_e, seconds) => {
+  const secs = Math.min(600, Math.max(1, Number(seconds) || 30))
+  const before = new Map(app.getAppMetrics().map(m => [m.pid, m.cpu.cumulativeCPUUsage]))
+  const t0 = Date.now()
+  await new Promise(r => setTimeout(r, secs * 1000))
+  const after = app.getAppMetrics()
+  const elapsed = (Date.now() - t0) / 1000
+  // cumulativeCPUUsage is seconds of CPU since each process started; a process
+  // born during the window counts from 0. Without it, percentCPUUsage is the
+  // average since the call above (the debug panel's own polling would skew that).
+  const cpu = after.every(m => m.cpu.cumulativeCPUUsage != null)
+    ? after.reduce((t, m) => t + (m.cpu.cumulativeCPUUsage - (before.get(m.pid) ?? 0)), 0) / elapsed * 100
+    : after.reduce((t, m) => t + m.cpu.percentCPUUsage, 0)
+  const memKB = after.reduce((t, m) => t + benchMemoryKB(m), 0)
+  return { cpuPercent: Math.round(cpu * 10) / 10, memoryMB: Math.round(memKB / 1024), processes: after.length }
+})
+
+// The finished report: adds the machine, writes it, and in --benchmark mode
+// prints where and quits (exit code 1 for a run that failed).
+ipcMain.handle('benchmark-finish', async (_e, report) => {
+  const full = {
+    ...report,
+    os: { darwin: 'macos', win32: 'windows' }[process.platform] || process.platform,
+    arch: process.arch,
+    cpus: os.cpus().length,
+    memoryKind: BENCH_MEMORY_KIND,
+  }
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+  const out = benchArg('benchmark-out') || path.join(app.getPath('userData'), 'benchmarks', `benchmark-electron-${stamp}.json`)
+  await fs.promises.mkdir(path.dirname(out), { recursive: true })
+  await fs.promises.writeFile(out, JSON.stringify(full, null, 2))
+  if (BENCH_AUTO) {
+    console.log(`benchmark: ${out}`)
+    setTimeout(() => app.exit(full.error ? 1 : 0), 200)
+  }
+  return { path: out, report: full }
+})
+
 // IPC: app version
 ipcMain.handle('get-version', () => app.getVersion())
 

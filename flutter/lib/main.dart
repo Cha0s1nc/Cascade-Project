@@ -11,6 +11,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:cascade/ui/pages/common.dart';
 import 'package:cascade/ui/desktop.dart';
 import 'package:cascade/ui/first_run.dart';
+import 'package:cascade/core/benchmark.dart';
 import 'package:cascade/core/connection_headers.dart';
 import 'package:cascade/core/data_move.dart';
 import 'package:cascade/core/log.dart';
@@ -34,7 +35,7 @@ import 'package:cascade/ui/video_player.dart';
 import 'package:cascade/ui/widgets.dart';
 import 'package:cascade/ui/scopes.dart';
 
-Future<void> main() async {
+Future<void> main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
   // Before anything reads settings: the Linux app id's old folder moves over.
   try {
@@ -57,6 +58,25 @@ Future<void> main() async {
   player.localFile = (s) => downloads.fileOf(s.id);
   if (Platform.isWindows || Platform.isLinux) DiscordPresence(player, player.settings);
   runApp(CascadeApp(player: player, session: await Jellyfin.restore(), downloads: downloads, cacheDir: cacheDir));
+  if (benchmarkArgs(args) case final bench?) _autoBenchmark(player, bench);
+}
+
+/// Started with --benchmark (core/benchmark.dart): once signed in, run it,
+/// write the report, say where and quit (exit code 1 for a run that failed).
+Future<void> _autoBenchmark(Player player, BenchmarkArgs a) async {
+  Map<String, Object?> report;
+  try {
+    log('benchmark: waiting for the sign-in');
+    for (var i = 0; i < 120 && player.jf?.token == null; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 500));
+    }
+    report = await runBenchmark(player, track: a.track, settle: a.settle, seconds: a.seconds);
+  } catch (e) {
+    report = {'app': 'flutter', 'version': appVersion, 'error': '$e'};
+  }
+  final path = await saveBenchmark(report, out: a.out);
+  stdout.writeln('benchmark: $path');
+  exit(report.containsKey('error') ? 1 : 0);
 }
 
 class CascadeApp extends StatefulWidget {

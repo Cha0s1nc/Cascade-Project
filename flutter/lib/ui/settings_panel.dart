@@ -3,9 +3,12 @@
 // change, and each tab's settings in grouped cards. The look of Now Playing
 // and the lyrics is not here: it is in the Style menu, which the Style
 // buttons open.
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'package:cascade/core/benchmark.dart';
 import 'package:cascade/core/connection_headers.dart';
 import 'package:cascade/core/custom_headers.dart';
 import 'package:cascade/core/electron_import.dart';
@@ -347,10 +350,15 @@ class _SettingsPanelState extends State<SettingsPanel> {
   }
 
   List<Widget> _about(BuildContext context) => [
-    const SettingsGroup('About', [
-      SettingRow('Cascade for Windows, Linux and Android', subtitle: 'Version $appVersion'),
-      SettingRow('Website', subtitle: 'cascade.chaosinc.xyz'),
-      SettingRow('Fonts', subtitle: 'Hanken Grotesk and Inter, under the SIL Open Font License'),
+    SettingsGroup('About', [
+      const SettingRow('Cascade for Windows, Linux and Android', subtitle: 'Version $appVersion'),
+      const SettingRow('Website', subtitle: 'cascade.chaosinc.xyz'),
+      const SettingRow('Fonts', subtitle: 'Hanken Grotesk and Inter, under the SIL Open Font License'),
+      SettingRow(
+        'Benchmark',
+        subtitle: 'About a minute: idle on Home, then one song with no sound, not added to your history. Stops what is playing.',
+        trailing: _Btn('Run', () => _runBenchmark(context)),
+      ),
     ]),
     SettingsGroup('Help', [
       SettingRow(
@@ -402,6 +410,40 @@ class _SettingsPanelState extends State<SettingsPanel> {
         ),
     ]),
   ];
+}
+
+/// Settings > About > Benchmark: runs it from Home, then shows the result over
+/// whatever page is up (the root navigator outlives this panel).
+Future<void> _runBenchmark(BuildContext context) async {
+  final player = PlayerScope.read(context), nav = NavScope.maybeRead(context);
+  final root = Navigator.of(context, rootNavigator: true);
+  toast(context, 'Running the benchmark, about a minute. Leave Cascade on screen.');
+  Map<String, Object?> r = const {};
+  String? path;
+  Object? err;
+  try {
+    r = await runBenchmark(player, goHome: () => nav?.show('home'));
+    path = await saveBenchmark(r);
+  } catch (e) {
+    err = e;
+  }
+  if (!root.mounted) return;
+  await showDialog<void>(
+    context: root.context,
+    builder: (ctx) => AlertDialog(
+      backgroundColor: K.panel,
+      title: Text('Benchmark', style: Txt.section()),
+      content: SelectableText(err != null ? 'Stopped: $err' : '${benchmarkSummary(r)}\n\nSaved to $path', style: ts(12, c: K.text2, h: 1.4)),
+      actions: [
+        if (err == null)
+          TextButton(
+            onPressed: () => Clipboard.setData(ClipboardData(text: const JsonEncoder.withIndent('  ').convert(r))),
+            child: const Text('Copy report'),
+          ),
+        TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Close')),
+      ],
+    ),
+  );
 }
 
 /// Where the look settings went: a group that says so and opens Style.

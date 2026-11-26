@@ -151,6 +151,11 @@ export interface UpdateCheckResult {
   error?: string
 }
 
+/** Benchmark mode's --benchmark options (main.js 'benchmark-args'). */
+export interface BenchmarkArgs { track?: string; settle: number; seconds: number }
+/** One benchmark window: CPU as % of one core over every process, memory at its end. */
+export interface BenchmarkSample { cpuPercent: number; memoryMB: number; processes: number }
+
 /** One Electron process, as the debug panel's resources section shows it. */
 export interface ProcessMetric {
   type: string
@@ -344,6 +349,13 @@ export interface DesktopCapabilities {
   tuningBake?(payload: unknown): Promise<{ report?: string; error?: string }>
   /** Per-process memory and CPU, for the debug panel. */
   appMetrics?(): Promise<ProcessMetric[]>
+  /** Benchmark mode (main.js 'benchmark-*'): the --benchmark options, or null
+   *  when the app was not started with --benchmark. */
+  benchmarkArgs?(): Promise<BenchmarkArgs | null>
+  /** CPU (% of one core, every process) over `seconds`, and memory at the end. */
+  benchmarkMeasure?(seconds: number): Promise<BenchmarkSample>
+  /** Writes the report (main adds the machine); with --benchmark, then quits. */
+  benchmarkFinish?(report: unknown): Promise<{ path: string; report: Record<string, unknown> }>
 
   onMediaKey?(cb: (key: string) => void): void
   touchbarUpdate?(data: TouchBarUpdate): void
@@ -450,6 +462,9 @@ export interface ElectronPlatform extends Platform, DesktopCapabilities {
   isDebugMode: NonNullable<DesktopCapabilities['isDebugMode']>
   tuningBake: NonNullable<DesktopCapabilities['tuningBake']>
   appMetrics: NonNullable<DesktopCapabilities['appMetrics']>
+  benchmarkArgs: NonNullable<DesktopCapabilities['benchmarkArgs']>
+  benchmarkMeasure: NonNullable<DesktopCapabilities['benchmarkMeasure']>
+  benchmarkFinish: NonNullable<DesktopCapabilities['benchmarkFinish']>
   onMediaKey: NonNullable<DesktopCapabilities['onMediaKey']>
   touchbarUpdate: NonNullable<DesktopCapabilities['touchbarUpdate']>
   nowPlayingUpdate: NonNullable<DesktopCapabilities['nowPlayingUpdate']>

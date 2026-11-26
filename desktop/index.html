@@ -1341,6 +1341,16 @@
                   <button class="btn btn-secondary" id="btn-check-updates" style="font-size:12px;padding:5px 14px;">Check for updates</button>
                 </div>
               </div>
+              <div class="settings-group settings-about not-local">
+                <div style="min-width:0;">
+                  <div style="font-size:13px;font-weight:500;color:var(--text);">Benchmark</div>
+                  <div style="font-size:11px;color:var(--text3);" id="benchmark-status">About a minute: idle on Home, then one song, muted and not added to your history. Stops what is playing.</div>
+                </div>
+                <div style="display:flex;align-items:center;gap:8px;">
+                  <button class="btn btn-secondary" id="btn-copy-benchmark" style="font-size:12px;padding:5px 14px;display:none;">Copy report</button>
+                  <button class="btn btn-secondary" id="btn-run-benchmark" style="font-size:12px;padding:5px 14px;">Run benchmark</button>
+                </div>
+              </div>
               <!-- Hidden while telemetry is dormant (CascadeCore.TELEMETRY_URL empty); loadSettingsFields() shows it. -->
               <div class="settings-group settings-about" id="s-telemetry-row" style="display:none;">
                 <div>

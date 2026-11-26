@@ -1296,6 +1296,7 @@ async function connect(serverUrl, token, userId) {
   invalidateVideoViews()
   await loadHome()
   await restoreLastQueue()
+  maybeAutoBenchmark()
   _connectedOnline = !offline
   // Both sit over a populated app rather than a blank one, hence after loadHome.
   // The wizard runs itself off its stored revision, so an ordinary launch on the
@@ -6740,6 +6741,86 @@ function playbackSnapshot(itemId, positionTicks) {
   }
 }
 
+// ── Benchmark mode ──
+// Settings > About > Run benchmark, or --benchmark on the command line (main.js
+// 'benchmark-args'). The same run and report as the Flutter app's
+// (flutter/lib/core/benchmark.dart), so both compare on one machine and one
+// account: settle on Home, measure idle, play one song muted, measure playing.
+// While it runs no playback report goes out, so the server's history, resume
+// points and play counts stay as they were. It stops whatever was playing.
+let _benchmarkRunning = false
+const BENCH_FIELDS = 'AlbumId,AlbumPrimaryImageTag,UserData,MediaStreams,MediaSources'
+
+async function runBenchmark({ track = undefined, settle = 20, seconds = 30 } = {}) {
+  if (_benchmarkRunning) throw new Error('A benchmark is already running.')
+  if (!jf.url || !jf.userId || jfClient.offline || isLocalMode()) throw new Error('Sign in to a server first.')
+  const wait = ms => new Promise(r => setTimeout(r, ms))
+  const wasMuted = _muted
+  _benchmarkRunning = true
+  try {
+    if (queue.length) stopPlayback()
+    setDeckMuted(true)
+    showView('home')
+    await wait(settle * 1000)
+    const idle = await window.cascade.benchmarkMeasure(seconds)
+    // Default: the library's first song by name, which the Flutter app picks too.
+    const items = track
+      ? await jfItemsByIds([track], BENCH_FIELDS)
+      : (await jfGet('/Items', { IncludeItemTypes: 'Audio', Recursive: true, SortBy: 'SortName', SortOrder: 'Ascending', Limit: 1, Fields: BENCH_FIELDS }))?.Items || []
+    if (!items.length) throw new Error(track ? `No song with id ${track}.` : 'The library has no songs.')
+    playItems(items, 0)
+    await wait(5000)
+    if (audio.paused) throw new Error('The song did not start playing.')
+    const playing = await window.cascade.benchmarkMeasure(seconds)
+    return {
+      app: 'electron', version: await window.cascade.getVersion(), date: new Date().toISOString(),
+      track: { id: items[0].Id, name: items[0].Name }, settleSeconds: settle, sampleSeconds: seconds, idle, playing,
+    }
+  } finally {
+    // The flag is still up, so this sends no stop report either.
+    if (queue.length) stopPlayback()
+    setDeckMuted(wasMuted)
+    _benchmarkRunning = false
+  }
+}
+
+/** One line for Settings: CPU and memory, idle then playing. */
+function benchmarkSummary(r) {
+  const unit = r.memoryKind === 'private' ? 'MB private' : 'MB'
+  return `Idle ${r.idle.cpuPercent}% CPU, ${r.idle.memoryMB} ${unit}. Playing ${r.playing.cpuPercent}% CPU, ${r.playing.memoryMB} ${unit}.`
+}
+
+// Started with --benchmark: run once Home is up; main writes the report and quits.
+function maybeAutoBenchmark() {
+  window.cascade.benchmarkArgs?.().then(args => {
+    if (!args) return
+    runBenchmark(args).then(
+      r => window.cascade.benchmarkFinish(r),
+      e => window.cascade.benchmarkFinish({ app: 'electron', error: String(e?.message || e) }))
+  }).catch(() => {})
+}
+
+let _lastBenchmark = null
+document.getElementById('btn-run-benchmark')?.addEventListener('click', async () => {
+  const btn = /** @type {HTMLButtonElement} */ (document.getElementById('btn-run-benchmark'))
+  const status = document.getElementById('benchmark-status')
+  btn.disabled = true
+  status.textContent = 'Running, about a minute. Leave Cascade on screen.'
+  try {
+    const { path, report } = await window.cascade.benchmarkFinish(await runBenchmark())
+    _lastBenchmark = report
+    status.textContent = `${benchmarkSummary(report)} Saved to ${path}`
+    document.getElementById('btn-copy-benchmark').style.display = ''
+  } catch (e) {
+    status.textContent = `Benchmark stopped: ${e?.message || e}`
+  } finally {
+    btn.disabled = false
+  }
+})
+document.getElementById('btn-copy-benchmark')?.addEventListener('click', () => {
+  if (_lastBenchmark) navigator.clipboard.writeText(JSON.stringify(_lastBenchmark, null, 2)).catch(() => {})
+})
+
 // Guards the window after a stop report. audio.pause() and currentTime = 0 both
 // queue events that fire *after* reportPlaybackStopped() has already run - and
 // their progress reports would re-register the track server-side, leaving a
@@ -6747,6 +6828,7 @@ function playbackSnapshot(itemId, positionTicks) {
 let _reportingActive = false
 
 function reportPlaybackStart(itemId) {
+  if (_benchmarkRunning) return
   _reportingActive = true
   const item = queue[queueIndex]
   if (item && !isVideoItem(item) && !CascadeCore.isRadioItem(item)) countTelemetrySong()
@@ -6766,6 +6848,7 @@ function reportPlaybackStart(itemId) {
 
 /** `item`: when the queue no longer holds it (stopPlayback clears it first). */
 function reportPlaybackStopped(itemId, positionTicks, item) {
+  if (_benchmarkRunning) return
   _reportingActive = false
   stopProgressReporting()
   const stopped = item || queue.find(q => q?.Id === itemId)
@@ -6782,7 +6865,7 @@ function reportPlaybackStopped(itemId, positionTicks, item) {
 // Fires on the interval and on every play/pause/seek/volume change, so a
 // controller sees state changes immediately rather than up to 10s later.
 function reportPlaybackProgress() {
-  if (!_reportingActive || !jf.url || queueIndex < 0) return
+  if (_benchmarkRunning || !_reportingActive || !jf.url || queueIndex < 0) return
   const item = queue[queueIndex]
   if (!item) return
   CascadeCore.reportProgress(jfClient, playbackSnapshot(item.Id))
