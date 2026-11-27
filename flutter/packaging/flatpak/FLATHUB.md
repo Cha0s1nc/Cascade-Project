@@ -1,6 +1,6 @@
 # Submitting to Flathub
 
-Held until 3.0. Everything Flathub needs lives in this folder: `xyz.chaosinc.cascade.yml` (the manifest Flathub builds) and `flathub.json` (x86_64 only, and the update bot's PRs merge themselves). The metainfo, icon and licenses ship inside the release tarball (`flutter/packaging/linux/package.sh`), so the manifest has one Cascade source.
+Held until 3.0. Everything Flathub needs lives in this folder: `xyz.chaosinc.cascade.yml` (the manifest Flathub builds) and `flathub.json` (x86_64 only). The metainfo, icon and licenses ship inside the release tarball (`flutter/packaging/linux/package.sh`), so the manifest has one Cascade source.
 
 ## Before submitting
 
@@ -37,7 +37,7 @@ Changes to the manifest itself (permissions, mpv or runtime bumps) go into this 
 
 The CI bundle job in `.github/workflows/flutter.yml` can go once the Flathub listing is live.
 
-`automerge-flathubbot-prs` in `flathub.json` is only granted to verified apps or ones that don't update too often, and it needs a linter exception (`flathub-json-automerge-enabled`) requested in the submission PR. If Flathub says no, drop the key and merge the bot's PRs by hand.
+`automerge-flathubbot-prs` is left out of `flathub.json` on purpose: the linter fails it (`flathub-json-automerge-enabled`) unless Flathub grants an exception, which it does for verified apps or ones that don't update too often. Without it the bot still opens and test-builds each update PR; merge it by hand. To have them merge themselves, ask for the exception in the submission PR and add the key back.
 
 ## Beta channel (optional, after 3.0.0 is listed)
 

@@ -176,6 +176,8 @@ class Player extends ChangeNotifier {
         // volume may go past 100 for a normalization boost (see _applyVolume).
         await native.setProperty('cache-on-disk', 'no');
         await native.setProperty('volume-max', '200');
+        // How the desktop's volume mixer names this app's sound (mpv otherwise).
+        await native.setProperty('audio-client-name', 'Cascade');
       }
       await _applyVolume(d);
       await _applyEq(d);

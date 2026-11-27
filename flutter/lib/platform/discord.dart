@@ -92,9 +92,14 @@ class DiscordPresence {
   }
 
   // Discord rate-limits presence updates, so changes settle for a moment.
+  // At most one update every 2 s. Not a debounce: the player notifies every
+  // second while a song plays, so a timer restarted on each change never
+  // fired and Discord never heard about the song.
   void _changed() {
-    _wait?.cancel();
-    _wait = Timer(const Duration(seconds: 2), _send);
+    _wait ??= Timer(const Duration(seconds: 2), () {
+      _wait = null;
+      _send();
+    });
   }
 
   Future<void> _send() async {

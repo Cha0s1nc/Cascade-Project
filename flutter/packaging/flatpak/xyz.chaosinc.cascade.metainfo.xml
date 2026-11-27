@@ -12,7 +12,7 @@
     <name>cha0s_1nc</name>
   </developer>
   <description>
-    <p>Cascade plays the music and video on your own Jellyfin server.</p>
+    <p>Cascade plays the music, movies and TV shows on your own Jellyfin server, with synced lyrics, crossfade and an equalizer built in.</p>
     <ul>
       <li>Synced lyrics, word by word where the song has them</li>
       <li>Crossfade, normalization and an equalizer</li>
