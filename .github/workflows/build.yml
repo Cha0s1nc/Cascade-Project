@@ -790,5 +790,12 @@ jobs:
           FLAGS=(--title "$TAG" --notes-file notes.md --target "$SHA")
           [ "$PUBLISH" = true ] || FLAGS+=(--draft)
           [ "$PRERELEASE" = true ] && FLAGS+=(--prerelease)
-          gh release create "$TAG" "${FLAGS[@]}" release/*
+          # GitHub refuses (403) to let the workflow token aim a release at a
+          # commit whose .github/workflows differ from its branch's tip: that
+          # needs the workflows permission, which this token never has. It
+          # happens when a push that changes a workflow lands mid-build.
+          if ! gh release create "$TAG" "${FLAGS[@]}" release/*; then
+            echo "::error::GitHub refused to create $TAG. If .github/workflows changed on $GITHUB_REF_NAME after this run started, the workflow token cannot target $SHA: run the build again from the branch's tip."
+            exit 1
+          fi
           echo "Made $TAG ($([ "$PUBLISH" = true ] && echo published || echo draft)) with: $(ls release | tr '\n' ' ')"
