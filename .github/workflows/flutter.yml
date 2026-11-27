@@ -284,7 +284,8 @@ jobs:
         timeout-minutes: 50
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends flatpak flatpak-builder
+          # With recommends: flatpak-builder strips binaries with elfutils' eu-strip.
+          sudo apt-get install -y flatpak flatpak-builder
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           mkdir -p dist
           flutter/packaging/flatpak/build-local.sh tarball/Cascade-Flutter-linux-x64.tar.gz dist/Cascade-Flutter-linux-x64.flatpak
