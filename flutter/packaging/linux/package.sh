@@ -7,9 +7,9 @@
 # The file name carries no version on purpose: see PLATFORM_FILES.flutter in
 # desktop/src/core/release-plan.ts.
 #
-# It also carries what the Flatpak installs beside the app (metainfo with this
-# version's release line, the 512 px icon, the licenses), so the Flathub
-# manifest needs this one file as its only Cascade source.
+# It also carries the metainfo with this version's release line, the 512 px
+# icon and the licenses. (The Flatpak builds from source instead, see
+# flutter/packaging/flatpak/FLATHUB.md.)
 #
 # ponytail: a tarball only. The main Linux download is the Flatpak on Flathub;
 # a .deb was dropped on 2026-11-23 for that, and an AppImage would have to

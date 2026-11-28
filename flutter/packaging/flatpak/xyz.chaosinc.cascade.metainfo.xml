@@ -1,6 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- The app's listing for Flathub and software centers. package.sh adds each
-     version's <release> line to the copy in the tarball; before submitting,
+<!-- The app's listing for Flathub and software centers. Before submitting,
      see FLATHUB.md (screenshots are still missing). -->
 <component type="desktop-application">
   <id>xyz.chaosinc.cascade</id>
@@ -37,10 +36,10 @@
     <color type="primary" scheme_preference="light">#9fc4ff</color>
     <color type="primary" scheme_preference="dark">#0b1a33</color>
   </branding>
-  <!-- Empty on purpose: package.sh adds the version being built. The Flathub
-       listing starts at 3.0.0 and 2.x stays off it; once 3.0.0 is out, add
-       each published version here, newest first, so the listing keeps its
-       history. -->
+  <!-- Empty until 3.0.0: package.sh adds the version being built to the
+       tarball's copy. The Flathub listing starts at 3.0.0 and 2.x stays off
+       it. The Flatpak build takes its version from the newest line here, so
+       add each Flathub release, newest first, before tagging it. -->
   <releases>
   </releases>
 </component>

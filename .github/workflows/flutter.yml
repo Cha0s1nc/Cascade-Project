@@ -257,38 +257,46 @@ jobs:
           path: flutter/dist/Cascade-Flutter-*
           retention-days: 7
 
-  # The tarball above as a single-file Flatpak bundle, for trying the Flatpak
-  # until it is on Flathub (a bundle gets no updates). Everything that can go
-  # wrong is in one step allowed to fail: build.yml counts flutter as failed
-  # when any job here fails, and a Flatpak problem must not hold back the
-  # installer and tarball.
+  # The Flathub manifest built from source for this commit, offline, as a
+  # single-file bundle for trying the Flatpak until it is on Flathub (a bundle
+  # gets no updates). It also proves the Flathub build still works. Everything
+  # that can go wrong is in one step allowed to fail: build.yml counts flutter
+  # as failed when any job here fails, and a Flatpak problem must not hold back
+  # the installer and tarball.
   flatpak:
-    needs: linux
+    needs: check
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/download-artifact@v8
-        with:
-          name: dist-flutter-linux
-          path: tarball
-
-      # A cold run downloads the GNOME SDK (about 1 GB) and compiles libass,
-      # libplacebo and mpv. Ubuntu 24.04 stops bubblewrap from making the user
-      # namespaces flatpak-builder needs, hence the sysctl.
-      # ponytail: no cache; add one for the SDK and flatpak-builder's state if release builds get slow.
+      # A cold run downloads the GNOME SDK (about 1 GB), the Flutter SDK and
+      # every Dart package, and compiles libass, libplacebo and mpv. Ubuntu
+      # 24.04 stops bubblewrap from making the user namespaces flatpak-builder
+      # needs, hence the sysctl. The tracked metainfo has no <release> before
+      # 3.0, so the version goes into the generated manifest's fallback.
+      # ponytail: no cache; add one for the SDKs and flatpak-builder's state if release builds get slow.
       - name: Build
         id: build
         continue-on-error: true
         timeout-minutes: 50
+        env:
+          INPUT: ${{ inputs.version }}
+          RUN: ${{ github.run_number }}
         run: |
+          V="${INPUT:-0.0.$RUN}"
           sudo apt-get update
           # With recommends: flatpak-builder strips binaries with elfutils' eu-strip.
           sudo apt-get install -y flatpak flatpak-builder
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+          flatpak install --user -y --noninteractive flathub org.flatpak.Builder
+          flutter/packaging/flatpak/update-sources.sh "$GITHUB_SHA"
+          sed -i "s/V=\${V:-0.0.0}/V=\${V:-$V}/" flutter/packaging/flatpak/xyz.chaosinc.cascade.yml
+          grep -qF "V=\${V:-$V}" flutter/packaging/flatpak/xyz.chaosinc.cascade.yml
           mkdir -p dist
-          flutter/packaging/flatpak/build-local.sh tarball/Cascade-Flutter-linux-x64.tar.gz dist/Cascade-Flutter-linux-x64.flatpak
+          flutter/packaging/flatpak/build-local.sh dist/Cascade-Flutter-linux-x64.flatpak
 
       - if: steps.build.outcome != 'success'
         run: echo "::warning::The Flatpak did not build; the release goes out without it."

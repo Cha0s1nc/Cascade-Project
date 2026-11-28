@@ -1,0 +1,128 @@
+# The template for the Flathub manifest. Do not hand Flathub this file: run
+# update-sources.sh <tag>, which feeds it to flatpak-flutter and writes
+# xyz.chaosinc.cascade.yml plus the generated/ folder, an offline from-source
+# build (Flathub's build has no network). See FLATHUB.md.
+#
+# The GNOME runtime brings GTK 3, WebKitGTK 4.1 (the lyrics editor's window),
+# libsoup 3 and FFmpeg; mpv is built here with the two libraries it needs that
+# the runtime lacks. Full codecs come from the runtime's codecs-extra extension.
+id: xyz.chaosinc.cascade
+runtime: org.gnome.Platform
+runtime-version: '51'
+sdk: org.gnome.Sdk
+# Flutter builds its Linux runner with clang, which the SDK lacks. GNOME 51 is
+# on freedesktop 26.08; move both together.
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.llvm22
+command: cascade
+
+finish-args:
+  - --share=ipc
+  - --share=network
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --socket=pulseaudio
+  - --device=dri
+  # Media controls (audio_service_mpris: org.mpris.MediaPlayer2.Cascade.instance<pid>).
+  - --own-name=org.mpris.MediaPlayer2.Cascade.*
+  # Discord status, to a Discord installed natively or as its own Flatpak.
+  - --filesystem=xdg-run/discord-ipc-0
+  - --filesystem=xdg-run/app/com.discordapp.Discord:create
+
+# Meson defaults to lib64 here, which is outside the runtime's search paths.
+build-options:
+  config-opts:
+    - --libdir=lib
+
+cleanup:
+  - /include
+  - /lib/pkgconfig
+  - /share/man
+  - '*.a'
+
+modules:
+  - name: libass
+    buildsystem: meson
+    config-opts:
+      - -Dtest=disabled
+      - -Dprofile=disabled
+      - -Dfuzz=disabled
+      - -Dcheckasm=disabled
+    sources:
+      - type: git
+        url: https://github.com/libass/libass.git
+        tag: 0.17.5
+        commit: 4a05d8127f525943ebf45fdc6497c9e665947f0d
+
+  - name: libplacebo
+    buildsystem: meson
+    # OpenGL is what media_kit renders video through (mpv's render API).
+    config-opts:
+      - -Dvulkan=disabled
+      - -Dopengl=enabled
+      - -Dd3d11=disabled
+      - -Ddemos=false
+      - -Dtests=false
+    sources:
+      - type: git
+        url: https://code.videolan.org/videolan/libplacebo.git
+        tag: v7.387.0
+        commit: 275f7dea27924cdd34ab2e6c20e448b6bc4fab65
+
+  - name: mpv
+    buildsystem: meson
+    # libmpv only: media_kit loads libmpv.so.2, nothing runs the mpv player.
+    config-opts:
+      - -Dlibmpv=true
+      - -Dcplayer=false
+      - -Dlua=disabled
+      - -Djavascript=disabled
+      - -Dmanpage-build=disabled
+    sources:
+      - type: git
+        url: https://github.com/mpv-player/mpv.git
+        tag: v0.42.0
+        commit: b0841e8c4d156b8403dc1876c4cbd9011eb583f3
+
+  - name: cascade
+    buildsystem: simple
+    build-options:
+      append-path: /usr/lib/sdk/llvm22/bin:/run/build/cascade/flutter-sdk/bin
+      prepend-ld-library-path: /usr/lib/sdk/llvm22/lib
+      env:
+        PUB_CACHE: /run/build/cascade/.pub-cache
+    build-commands:
+      # flatpak-flutter swaps this for its offline setup (setup-flutter.sh -C flutter).
+      - flutter pub get
+      # The version is the newest <release> in the tracked metainfo, so a tag
+      # bump from Flathub's bot carries it; a build of a commit without one is 0.0.0.
+      - >-
+        cd flutter &&
+        V=$(grep -m1 -o 'release version="[^"]*' packaging/flatpak/xyz.chaosinc.cascade.metainfo.xml | cut -d'"' -f2) &&
+        V=${V:-0.0.0} &&
+        flutter build linux --release --no-pub --build-name "${V%%-*}" --dart-define=CASCADE_VERSION="$V"
+      # The bundle as Flutter built it: cascade finds lib/ and data/ beside its real path.
+      - mkdir -p /app/cascade /app/bin
+      - cp -a flutter/build/linux/*/release/bundle/. /app/cascade/
+      - ln -s /app/cascade/cascade /app/bin/cascade
+      - desktop-file-edit --set-key=Exec --set-value='cascade %U' --set-name=Cascade flutter/packaging/linux/xyz.chaosinc.cascade.desktop
+      - install -Dm644 flutter/packaging/linux/xyz.chaosinc.cascade.desktop /app/share/applications/xyz.chaosinc.cascade.desktop
+      - install -Dm644 flutter/packaging/flatpak/xyz.chaosinc.cascade.png /app/share/icons/hicolor/512x512/apps/xyz.chaosinc.cascade.png
+      - install -Dm644 flutter/packaging/flatpak/xyz.chaosinc.cascade.metainfo.xml /app/share/metainfo/xyz.chaosinc.cascade.metainfo.xml
+      - install -Dm644 LICENSE /app/share/licenses/xyz.chaosinc.cascade/LICENSE
+      - install -Dm644 shared/assets/LICENSE /app/share/licenses/xyz.chaosinc.cascade/ARTWORK-LICENSE
+    sources:
+      # update-sources.sh fills in the tag and commit.
+      - type: git
+        url: https://github.com/Cha0s1nc/Cascade-Project.git
+        tag: '@TAG@'
+        x-checker-data:
+          type: git
+          tag-pattern: ^v([0-9]+\.[0-9]+\.[0-9]+)$
+      # The SDK the app is built with: keep it on FLUTTER_VERSION in
+      # .github/workflows/flutter.yml. flatpak-flutter replaces this with its
+      # offline SDK module, so it needs that version in its release data.
+      - type: git
+        url: https://github.com/flutter/flutter.git
+        tag: 3.44.1
+        dest: flutter-sdk
